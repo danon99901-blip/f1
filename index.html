@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Racing</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #0a0a0a; font-family: system-ui, sans-serif; }
+      #app { position: fixed; inset: 0; }
+      #loading {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        color: #fff; font-size: 1.25rem; letter-spacing: 0.1em;
+        background: #0a0a0a; z-index: 10; transition: opacity 0.4s;
+      }
+      #loading.hidden { opacity: 0; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading">LOADING&hellip;</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
