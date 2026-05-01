@@ -28,7 +28,11 @@ interface DebrisPiece {
 export interface OpponentsController {
   update: (dt: number, elapsedTime: number, playerSpeedKmh: number) => void;
   handlePlayerImpacts: (playerBody: RAPIER.RigidBody) => number;
-  getPlayerPosition: (playerLap: number, playerProgress: number) => number;
+  /** Rank the player among the field. `playerArcDistance` is cumulative arc
+   *  length along the centerline, in metres, in the same coordinate system
+   *  as `opponent.distance` (i.e. it grows monotonically and can exceed
+   *  `trackLength` after laps). */
+  getPlayerPosition: (playerArcDistance: number) => number;
   getTotalCars: () => number;
 }
 
@@ -241,19 +245,15 @@ export function createOpponents(
     return destroyedCount;
   }
 
-  function getPlayerPosition(playerLap: number, playerProgress: number): number {
-    const playerDistance = (Math.max(0, playerLap - 1) + playerProgress) * trackLength;
+  function getPlayerPosition(playerArcDistance: number): number {
+    // Both sides are cumulative arc length along the centerline; we don't
+    // need to derive laps separately. Whoever has the larger value is
+    // physically further along the racing line.
     let ahead = 0;
-
     for (const opponent of opponents) {
       if (opponent.destroyed) continue;
-      const opponentLap = Math.floor(opponent.distance / trackLength) + 1;
-      const wrapped = ((opponent.distance % trackLength) + trackLength) % trackLength;
-      const opponentProgress = wrapped / trackLength;
-      const opponentDistance = (Math.max(0, opponentLap - 1) + opponentProgress) * trackLength;
-      if (opponentDistance > playerDistance) ahead += 1;
+      if (opponent.distance > playerArcDistance) ahead += 1;
     }
-
     return ahead + 1;
   }
 

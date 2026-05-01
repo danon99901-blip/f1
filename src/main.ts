@@ -48,6 +48,7 @@ async function main() {
   );
   const lapTracker = createLapTracker(track, vehicle.rigidBody, world);
   const playerStartProgress = track.getProgress(spawn.position);
+  const playerStartArcDistance = playerStartProgress * track.lapInfo.length;
   const opponents = createOpponents(scene, world, track.lapInfo.length, playerStartProgress, 5);
 
   const input = createInput();
@@ -60,6 +61,11 @@ async function main() {
   const cameraOffset = new THREE.Vector3(0, 4, 10);
   let elapsedTime = 0;
   let belowTrackTimer = 0;
+  // Cumulative arc length for the player along the centerline. Same units as
+  // the opponents' `distance` field, so getPlayerPosition can compare them
+  // directly without any lap-counter arithmetic. Reset on respawn so a
+  // recovery doesn't credit you with extra ground.
+  let playerArcDistance = playerStartArcDistance;
 
   const respawnAtGrid = () => {
     vehicle.rigidBody.setTranslation(spawn.position, true);
@@ -70,6 +76,7 @@ async function main() {
     vehicle.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
     vehicle.rigidBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
     belowTrackTimer = 0;
+    playerArcDistance = playerStartArcDistance;
   };
 
   function loop() {
@@ -103,6 +110,8 @@ async function main() {
     vehicle.syncVisuals();
     lapTracker.update(dt);
     const speedKmh = vehicle.getSpeedKmh();
+    const forwardSpeedKmh = vehicle.getForwardSpeedKmh();
+    playerArcDistance += (forwardSpeedKmh / 3.6) * dt;
     opponents.update(dt, elapsedTime, speedKmh);
     opponents.handlePlayerImpacts(vehicle.rigidBody);
 
@@ -113,10 +122,10 @@ async function main() {
 
     const lapState = lapTracker.state;
     const totalCars = opponents.getTotalCars();
-    const playerPosition = opponents.getPlayerPosition(lapState.currentLap, lapState.position);
+    const playerPosition = opponents.getPlayerPosition(playerArcDistance);
     hud.update({
       speedKmh,
-      gear: estimateGear(vehicle.getForwardSpeedKmh(), input.state.throttle, input.state.brake),
+      gear: estimateGear(forwardSpeedKmh, input.state.throttle, input.state.brake),
       currentLap: Math.max(1, Math.min(TOTAL_LAPS, lapState.currentLap)),
       totalLaps: TOTAL_LAPS,
       lapTimeMs: lapState.currentLapTime * 1000,
