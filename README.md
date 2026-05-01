@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Controls: **W/S** throttle/reverse, **A/D** steer, **Space** brake.
+Controls: **W** throttle, **S** brake (engages reverse once stopped), **A/D** steer, **Space** also brake.
 
 ## Layout
 

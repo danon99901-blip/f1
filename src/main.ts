@@ -12,10 +12,11 @@ import './hud/styles.css';
 
 const TOTAL_LAPS = 10;
 
-function estimateGear(speedKmh: number, throttle: number): Gear {
-  if (speedKmh < 1 && throttle === 0) return 'N';
-  if (throttle < 0 && speedKmh < 20) return 'R';
-  return Math.max(1, Math.min(8, Math.floor(speedKmh / 40) + 1));
+function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {
+  const abs = Math.abs(forwardSpeedKmh);
+  if (abs < 1 && throttle === 0 && brake === 0) return 'N';
+  if (forwardSpeedKmh < -1) return 'R';
+  return Math.max(1, Math.min(8, Math.floor(abs / 40) + 1));
 }
 
 async function main() {
@@ -50,7 +51,7 @@ async function main() {
   const opponents = createOpponents(scene, world, track.lapInfo.length, playerStartProgress, 5);
 
   const input = createInput();
-  const drivingInput = { forward: 0, brake: 0, steer: 0 };
+  const drivingInput = { throttle: 0, brake: 0, steer: 0 };
 
   loadingEl?.classList.add('hidden');
 
@@ -91,7 +92,9 @@ async function main() {
 
     const onTrack = track.isOnTrack(vehicle.rigidBody.translation());
     const gripMul = onTrack ? 1 : track.lapInfo.offTrackGripMultiplier;
-    drivingInput.forward = input.state.forward * gripMul;
+    // Throttle and steering get the off-track grip penalty; brakes don't —
+    // we want the player to always be able to scrub speed to recover.
+    drivingInput.throttle = input.state.throttle * gripMul;
     drivingInput.brake = input.state.brake;
     drivingInput.steer = input.state.steer * gripMul;
 
@@ -113,7 +116,7 @@ async function main() {
     const playerPosition = opponents.getPlayerPosition(lapState.currentLap, lapState.position);
     hud.update({
       speedKmh,
-      gear: estimateGear(speedKmh, input.state.forward),
+      gear: estimateGear(vehicle.getForwardSpeedKmh(), input.state.throttle, input.state.brake),
       currentLap: Math.max(1, Math.min(TOTAL_LAPS, lapState.currentLap)),
       totalLaps: TOTAL_LAPS,
       lapTimeMs: lapState.currentLapTime * 1000,

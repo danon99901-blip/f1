@@ -88,7 +88,10 @@ export interface Vehicle {
   wheelMeshes: THREE.Object3D[];
   update(input: InputState, dt: number): void;
   syncVisuals(): void;
+  /** Magnitude of the longitudinal speed, in km/h. */
   getSpeedKmh(): number;
+  /** Signed longitudinal speed in km/h: positive forward, negative in reverse. */
+  getForwardSpeedKmh(): number;
 }
 
 function buildChassisMesh(): THREE.Group {
@@ -348,35 +351,36 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     smoothedSteer += (targetSteer - smoothedSteer) * k;
 
     // Throttle / brake / engine logic.
-    const throttle = input.forward;
-    const isBraking = input.brake > 0;
+    //
+    // S (brake) is dual-use: while moving forward it brakes; once the car has
+    // come to a near-stop and brake is still held with no throttle, it
+    // engages reverse. This matches the arcade convention and keeps the input
+    // surface to two pedals plus steering.
+    const throttle = input.throttle;
+    const brake = input.brake;
+    const wantsReverse = brake > 0 && throttle === 0 && forwardSpeed < 1.0;
 
-    // Determine engine force (rear wheels only). When steering forward beyond
-    // top speed, taper to zero so we stop accelerating. Likewise for reverse.
     let engineForce = 0;
-    if (!isBraking) {
-      if (throttle > 0) {
-        // Forward.
-        if (forwardSpeed < TOP_SPEED_FORWARD) {
-          const headroom = 1 - Math.max(forwardSpeed, 0) / TOP_SPEED_FORWARD;
-          engineForce = -ENGINE_FORCE_MAX * throttle * headroom;
-        }
-      } else if (throttle < 0) {
-        // Reverse.
-        if (-forwardSpeed < TOP_SPEED_REVERSE) {
-          const headroom = 1 - Math.max(-forwardSpeed, 0) / TOP_SPEED_REVERSE;
-          engineForce = REVERSE_FORCE_MAX * Math.abs(throttle) * headroom;
-        }
+    if (throttle > 0) {
+      if (forwardSpeed < TOP_SPEED_FORWARD) {
+        const headroom = 1 - Math.max(forwardSpeed, 0) / TOP_SPEED_FORWARD;
+        engineForce = -ENGINE_FORCE_MAX * throttle * headroom;
+      }
+    } else if (wantsReverse) {
+      if (-forwardSpeed < TOP_SPEED_REVERSE) {
+        const headroom = 1 - Math.max(-forwardSpeed, 0) / TOP_SPEED_REVERSE;
+        engineForce = REVERSE_FORCE_MAX * brake * headroom;
       }
     }
 
-    // Brake force per axle.
+    // Brake force per axle. Active only when S is held and we're NOT in
+    // reverse mode (otherwise brakes would fight the reverse engine force).
     let brakeFront = 0;
     let brakeRear = 0;
-    if (isBraking) {
-      brakeFront = BRAKE_FRONT;
-      brakeRear = BRAKE_REAR;
-    } else if (throttle === 0 && absSpeed < 0.5) {
+    if (brake > 0 && !wantsReverse) {
+      brakeFront = BRAKE_FRONT * brake;
+      brakeRear = BRAKE_REAR * brake;
+    } else if (throttle === 0 && brake === 0 && absSpeed < 0.5) {
       // Soft handbrake to keep the car still on slopes/at rest.
       brakeRear = HANDBRAKE_REAR * 0.05;
     }
@@ -476,6 +480,12 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     return Math.abs(controller.currentVehicleSpeed()) * 3.6;
   }
 
+  function getForwardSpeedKmh(): number {
+    // Rapier's vehicle speed has the opposite sign to our visual forward
+    // (the car nose points toward -Z), so flip it before returning.
+    return -controller.currentVehicleSpeed() * 3.6;
+  }
+
   return {
     rigidBody,
     controller,
@@ -484,5 +494,6 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     update,
     syncVisuals,
     getSpeedKmh,
+    getForwardSpeedKmh,
   };
 }
