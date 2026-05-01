@@ -545,14 +545,25 @@ export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
     frameXZ[i * 4 + 3] = f.tangent.z;
   }
 
+  // Local search anchor: a single car (the player) calls findNearest twice
+  // per frame, so caching the previous nearest index lets us limit the scan
+  // to its neighbourhood. ±16 of 256 frames is ~1/8 of the loop — many
+  // multiples of one frame's travel even at 85 m/s — and is robust to
+  // skipping a sample on uneven sampling. If the local search saturates at
+  // the window edge (e.g. respawn / teleport) we fall back to a full scan.
+  let lastIdx = 0;
+  const SEARCH_RADIUS = 16;
+
   const findNearest = (
     pos: THREE.Vector3 | RAPIER.Vector,
   ): { index: number; lateral: number; along: number } => {
     const px = (pos as { x: number }).x;
     const pz = (pos as { z: number }).z;
-    let bestIdx = 0;
+    let bestIdx = lastIdx;
     let bestDistSq = Infinity;
-    for (let i = 0; i < frames.length; i++) {
+    let bestK = 0;
+    for (let k = -SEARCH_RADIUS; k <= SEARCH_RADIUS; k++) {
+      const i = (lastIdx + k + frames.length) % frames.length;
       const fx = frameXZ[i * 4 + 0]!;
       const fz = frameXZ[i * 4 + 1]!;
       const dx = px - fx;
@@ -561,8 +572,24 @@ export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
       if (d2 < bestDistSq) {
         bestDistSq = d2;
         bestIdx = i;
+        bestK = k;
       }
     }
+    if (bestK === -SEARCH_RADIUS || bestK === SEARCH_RADIUS) {
+      bestDistSq = Infinity;
+      for (let i = 0; i < frames.length; i++) {
+        const fx = frameXZ[i * 4 + 0]!;
+        const fz = frameXZ[i * 4 + 1]!;
+        const dx = px - fx;
+        const dz = pz - fz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestDistSq) {
+          bestDistSq = d2;
+          bestIdx = i;
+        }
+      }
+    }
+    lastIdx = bestIdx;
     // Refine: project onto the segment between bestIdx and its neighbour with
     // the smaller distance.
     const prev = (bestIdx - 1 + frames.length) % frames.length;
