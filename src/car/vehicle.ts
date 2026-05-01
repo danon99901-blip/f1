@@ -20,11 +20,11 @@ const WHEEL_HALF_TRACK = 0.85;         // distance from centerline to wheel cent
 const WHEEL_FRONT_Z = -1.55;           // forward wheels (negative Z = forward)
 const WHEEL_REAR_Z = 1.55;             // rear wheels
 
-const SUSPENSION_REST_LENGTH = 0.28;
-const SUSPENSION_STIFFNESS = 38.0;     // slightly softer to reduce chatter
-const SUSPENSION_COMPRESSION = 6.5;    // stronger damping on bumps
-const SUSPENSION_RELAXATION = 6.0;     // stronger rebound damping
-const MAX_SUSPENSION_TRAVEL = 0.12;
+const SUSPENSION_REST_LENGTH = 0.32;
+const SUSPENSION_STIFFNESS = 55.0;     // firmer, otherwise downforce bottoms it out
+const SUSPENSION_COMPRESSION = 6.5;    // damping on bumps
+const SUSPENSION_RELAXATION = 6.0;     // rebound damping
+const MAX_SUSPENSION_TRAVEL = 0.20;    // larger envelope so the chassis doesn't punch through
 const MAX_SUSPENSION_FORCE = 100000;
 
 const FRICTION_SLIP = 3.2;             // grip (2..4)
@@ -58,8 +58,12 @@ const TYRE_TEMP_COOLING = 0.07;
 const TYRE_WEAR_RATE = 0.00002;
 
 // Aero model: downforce and drag grow with v^2.
-const DOWNFORCE_COEFF = 3.2; // conservative to avoid ground tunneling
-const DOWNFORCE_MAX = 14000;
+// Downforce is intentionally tame: too much pushes the suspension past its
+// MAX_SUSPENSION_TRAVEL envelope at top speed, the chassis cuboid then sits
+// directly on the trimesh and the wheel raycasts can lose the surface — the
+// car appears to "sink through" the track. Keep aero/suspension headroom.
+const DOWNFORCE_COEFF = 1.1;
+const DOWNFORCE_MAX = 6000;
 const DRAG_COEFF = 1.1;
 
 // Wheel layout: 0=FL, 1=FR, 2=RL, 3=RR.
@@ -212,7 +216,10 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     .setTranslation(0, 1.2, 0)
     .setLinearDamping(CHASSIS_LINEAR_DAMPING)
     .setAngularDamping(CHASSIS_ANGULAR_DAMPING)
-    .setCanSleep(false);
+    .setCanSleep(false)
+    // Continuous collision detection — at top speed the chassis covers ~1.4 m
+    // per 60 fps step, enough to tunnel into thin trimesh edges without CCD.
+    .setCcdEnabled(true);
   const rigidBody = world.createRigidBody(bodyDesc);
 
   // Chassis collider — set density so the car has real mass (~750 kg target).
@@ -312,16 +319,18 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
       rigidBody.linvel().y,
       rigidBody.linvel().z,
     );
-    const speedMs = worldVel.length();
-    const speedSq = speedMs * speedMs;
-    const downforce = Math.min(DOWNFORCE_MAX, DOWNFORCE_COEFF * speedSq);
+    // Use horizontal speed for aero so vertical bouncing (kerb hops, landings)
+    // doesn't inject extra downforce that compounds the bottom-out.
+    const horizSpeedSq = worldVel.x * worldVel.x + worldVel.z * worldVel.z;
+    const speedMs = Math.sqrt(horizSpeedSq);
+    const downforce = Math.min(DOWNFORCE_MAX, DOWNFORCE_COEFF * horizSpeedSq);
     rigidBody.addForce({ x: 0, y: -downforce, z: 0 }, true);
 
     if (speedMs > 1e-4) {
       dragForce
         .copy(worldVel)
         .normalize()
-        .multiplyScalar(-DRAG_COEFF * speedSq);
+        .multiplyScalar(-DRAG_COEFF * horizSpeedSq);
       rigidBody.addForce({ x: dragForce.x, y: 0, z: dragForce.z }, true);
     }
 
@@ -402,8 +411,10 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
       const wearGain = TYRE_WEAR_RATE * (latSlip * latSlip + longSlip * longSlip) * (1 + absSpeed / 65);
       tyreWear[i] = Math.min(1, tyreWear[i]! + wearGain * dt * 60);
 
-      // Grip scales with aero, temperature and wear.
-      const aeroGripFactor = 1 + Math.min(0.55, downforce / 30000);
+      // Grip scales with aero, temperature and wear. Divisor rescaled when we
+      // dropped DOWNFORCE_MAX from 14000 to 6000 so top-speed grip still
+      // feels noticeably more planted than at low speed.
+      const aeroGripFactor = 1 + Math.min(0.5, downforce / 12000);
       const tyreFactor = tyreGripFactor(tyreTempC[i]!, tyreWear[i]!);
       const wheelGrip = FRICTION_SLIP * tyreFactor * aeroGripFactor;
 
