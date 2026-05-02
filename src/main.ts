@@ -61,13 +61,33 @@ async function main() {
   const cameraOffset = new THREE.Vector3(0, 4, 10);
   let elapsedTime = 0;
   let belowTrackTimer = 0;
+
+  // --- Debug logging ---------------------------------------------------------
+  // Toggle off by setting DEBUG = false. Periodic line at 10 Hz with the full
+  // control + physics snapshot, plus immediate event prints when ground
+  // contact, reverse-mode, on-track or respawn state changes.
+  const DEBUG = true;
+  const LOG_INTERVAL_S = 0.1;
+  let logTimer = 0;
+  let prevWantsReverse = false;
+  let prevOnTrack = true;
+  const prevContacts = [true, true, true, true];
+  let prevVx = 0;
+  let prevVz = 0;
+  const fmt = (n: number, d = 2) => n.toFixed(d);
   // Cumulative arc length for the player along the centerline. Same units as
   // the opponents' `distance` field, so getPlayerPosition can compare them
   // directly without any lap-counter arithmetic. Reset on respawn so a
   // recovery doesn't credit you with extra ground.
   let playerArcDistance = playerStartArcDistance;
 
-  const respawnAtGrid = () => {
+  const respawnAtGrid = (reason: string) => {
+    if (DEBUG) {
+      const t = vehicle.rigidBody.translation();
+      console.warn(
+        `[respawn] reason=${reason} at y=${fmt(t.y, 3)} t=${fmt(elapsedTime)}s`,
+      );
+    }
     vehicle.rigidBody.setTranslation(spawn.position, true);
     vehicle.rigidBody.setRotation(
       { x: 0, y: Math.sin(yawSpawn / 2), z: 0, w: Math.cos(yawSpawn / 2) },
@@ -89,10 +109,10 @@ async function main() {
     // 2) "half-fall" below track level for too long (stuck in geometry)
     const y = vehicle.rigidBody.translation().y;
     if (!Number.isFinite(y) || y < -1.2) {
-      respawnAtGrid();
+      respawnAtGrid('hard-fall');
     } else if (y < 0.28) {
       belowTrackTimer += dt;
-      if (belowTrackTimer > 0.35) respawnAtGrid();
+      if (belowTrackTimer > 0.35) respawnAtGrid('below-track');
     } else {
       belowTrackTimer = 0;
     }
@@ -112,6 +132,72 @@ async function main() {
     const speedKmh = vehicle.getSpeedKmh();
     const forwardSpeedKmh = vehicle.getForwardSpeedKmh();
     playerArcDistance += (forwardSpeedKmh / 3.6) * dt;
+
+    if (DEBUG) {
+      const dbg = vehicle.getDebug();
+
+      if (dbg.wantsReverse !== prevWantsReverse) {
+        console.log(
+          `[event] wantsReverse=${dbg.wantsReverse} fwd=${fmt(dbg.forwardSpeed)}m/s thr=${input.state.throttle} brk=${input.state.brake}`,
+        );
+        prevWantsReverse = dbg.wantsReverse;
+      }
+      if (onTrack !== prevOnTrack) {
+        console.log(`[event] onTrack=${onTrack}`);
+        prevOnTrack = onTrack;
+      }
+      for (let i = 0; i < 4; i++) {
+        if (dbg.wheelContacts[i] !== prevContacts[i]) {
+          const labels = ['FL', 'FR', 'RL', 'RR'];
+          console.log(
+            `[event] wheel ${labels[i]} contact=${dbg.wheelContacts[i]} susp=${fmt(dbg.suspensionLengths[i] ?? 0, 3)}`,
+          );
+          prevContacts[i] = dbg.wheelContacts[i] ?? false;
+        }
+      }
+
+      logTimer += dt;
+      if (logTimer >= LOG_INTERVAL_S) {
+        logTimer = 0;
+        const t = vehicle.rigidBody.translation();
+        const v = vehicle.rigidBody.linvel();
+        const contacts = dbg.wheelContacts.map((c) => (c ? '1' : '0')).join('');
+        const susp = dbg.suspensionLengths
+          .map((l) => fmt(l, 2))
+          .join(',');
+        // World-frame acceleration (finite difference against previous log tick).
+        const ax = (v.x - prevVx) / Math.max(LOG_INTERVAL_S, 1e-6);
+        const az = (v.z - prevVz) / Math.max(LOG_INTERVAL_S, 1e-6);
+        prevVx = v.x;
+        prevVz = v.z;
+        // Velocity component along the visual nose direction. Should equal
+        // forwardSpeed if everything is consistent. If they disagree, the car
+        // is "going forward sideways" — strong sign the chassis rotated.
+        const noseDotVel =
+          dbg.noseWorld.x * v.x + dbg.noseWorld.z * v.z;
+        const yawDeg = (dbg.yaw * 180) / Math.PI;
+        // Rear-wheel angular velocity proxy — diff of cumulative wheel angle.
+        // Useful to spot wheelspin (high w*r vs low ground speed) or wheels
+        // turning in the wrong direction.
+        const rlOmega = dbg.wheelRotations[2] ?? 0;
+        const rrOmega = dbg.wheelRotations[3] ?? 0;
+        console.log(
+          `[t=${fmt(elapsedTime)}] ` +
+            `in(W=${input.state.throttle} S=${input.state.brake} A/D=${fmt(input.state.steer)}) ` +
+            `drv(T=${fmt(drivingInput.throttle)} B=${fmt(drivingInput.brake)}) ` +
+            `onTrack=${onTrack} ` +
+            `pos.y=${fmt(t.y, 3)} vel=(${fmt(v.x, 1)},${fmt(v.y, 1)},${fmt(v.z, 1)}) ` +
+            `acc.xz=(${fmt(ax, 1)},${fmt(az, 1)}) ` +
+            `fwd=${fmt(dbg.forwardSpeed)}m/s rawVS=${fmt(dbg.rawVehicleSpeed)} ` +
+            `nose·vel=${fmt(noseDotVel)} ` +
+            `yaw=${fmt(yawDeg, 0)}° nose=(${fmt(dbg.noseWorld.x, 2)},${fmt(dbg.noseWorld.z, 2)}) ` +
+            `eng=${fmt(dbg.engineForce, 0)} brk=F${fmt(dbg.brakeFront, 0)}/R${fmt(dbg.brakeRear, 0)} ` +
+            `rev=${dbg.wantsReverse} df=${fmt(dbg.downforce, 0)} ` +
+            `contacts=${contacts} susp=[${susp}] ` +
+            `wRL=${fmt(rlOmega, 1)} wRR=${fmt(rrOmega, 1)}`,
+        );
+      }
+    }
     opponents.update(dt, elapsedTime, speedKmh);
     opponents.handlePlayerImpacts(vehicle.rigidBody);
 

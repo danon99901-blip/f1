@@ -31,8 +31,14 @@ const FRICTION_SLIP = 3.2;             // grip (2..4)
 const SIDE_FRICTION_STIFFNESS = 1.0;
 
 // Drive / brake / steering.
-const ENGINE_FORCE_MAX = 4500;         // per rear wheel
-const REVERSE_FORCE_MAX = 1800;        // per rear wheel (lower than forward)
+// We bypass Rapier's per-wheel engine force entirely (its sign convention
+// flipped at speed in our setup, decelerating then reversing the car under
+// full throttle). Instead we apply a direct horizontal thrust to the chassis
+// along the visual nose direction. Tuning: 12000 N gives ~16 m/s² peak accel
+// and a top speed around 70 m/s (~250 km/h) once balanced against drag and
+// linear damping.
+const THRUST_FORWARD_MAX = 12000;      // total thrust on chassis (forward)
+const THRUST_REVERSE_MAX = 4500;       // total thrust on chassis (reverse)
 const BRAKE_FRONT = 60;
 const BRAKE_REAR = 90;                 // stronger rear brakes
 const HANDBRAKE_REAR = 200;            // applied when no throttle and stationary-ish
@@ -81,6 +87,30 @@ const WHEELS: WheelDef[] = [
   { x:  WHEEL_HALF_TRACK, z: WHEEL_REAR_Z,  isFront: false, isLeft: false },
 ];
 
+export interface VehicleDebug {
+  /** Signed longitudinal speed (m/s), Rapier convention flipped to "+ = forward". */
+  forwardSpeed: number;
+  /** Raw value from controller.currentVehicleSpeed() — before our sign flip. */
+  rawVehicleSpeed: number;
+  /** Engine force fed to rear wheels this tick (Rapier sign — negative = forward). */
+  engineForce: number;
+  brakeFront: number;
+  brakeRear: number;
+  smoothedSteer: number;
+  wantsReverse: boolean;
+  downforce: number;
+  /** [FL, FR, RL, RR] — true if wheel raycast hit a surface this tick. */
+  wheelContacts: boolean[];
+  /** [FL, FR, RL, RR] — current suspension length (rest=SUSPENSION_REST_LENGTH). */
+  suspensionLengths: number[];
+  /** [FL, FR, RL, RR] — cumulative wheel spin angle in radians. */
+  wheelRotations: number[];
+  /** Yaw angle of the chassis (radians). */
+  yaw: number;
+  /** World-space direction the visual nose points (local -Z, applied rotation). */
+  noseWorld: { x: number; y: number; z: number };
+}
+
 export interface Vehicle {
   rigidBody: RAPIER.RigidBody;
   controller: RAPIER.DynamicRayCastVehicleController;
@@ -92,6 +122,8 @@ export interface Vehicle {
   getSpeedKmh(): number;
   /** Signed longitudinal speed in km/h: positive forward, negative in reverse. */
   getForwardSpeedKmh(): number;
+  /** Snapshot of the most recent update()'s control + contact state. */
+  getDebug(): VehicleDebug;
 }
 
 function buildChassisMesh(): THREE.Group {
@@ -302,6 +334,46 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
   const localVel = new THREE.Vector3();
   const dragForce = new THREE.Vector3();
 
+  // Debug snapshot — written at the end of update(), read by getDebug().
+  const dbg: VehicleDebug = {
+    forwardSpeed: 0,
+    rawVehicleSpeed: 0,
+    engineForce: 0,
+    brakeFront: 0,
+    brakeRear: 0,
+    smoothedSteer: 0,
+    wantsReverse: false,
+    downforce: 0,
+    wheelContacts: [false, false, false, false],
+    suspensionLengths: [
+      SUSPENSION_REST_LENGTH,
+      SUSPENSION_REST_LENGTH,
+      SUSPENSION_REST_LENGTH,
+      SUSPENSION_REST_LENGTH,
+    ],
+    wheelRotations: [0, 0, 0, 0],
+    yaw: 0,
+    noseWorld: { x: 0, y: 0, z: -1 },
+  };
+  const tmpNose = new THREE.Vector3();
+  const tmpChassisQ = new THREE.Quaternion();
+
+  // Bump diagnostic: when suspension snaps shut by more than this in one tick,
+  // we manually re-cast the wheel ray and print what was hit. Threshold chosen
+  // so normal kerb/road bumps don't spam (typical step <0.05) but the mystery
+  // bump from the logs (drop of ~0.17) does.
+  const BUMP_DETECT_DELTA = 0.10;
+  const WHEEL_LABELS = ['FL', 'FR', 'RL', 'RR'] as const;
+  const wheelLocalConn = WHEELS.map(
+    (w) => new THREE.Vector3(w.x, WHEEL_Y_OFFSET, w.z),
+  );
+  const diagRay = new RAPIER.Ray(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: -1, z: 0 },
+  );
+  const diagOrigin = new THREE.Vector3();
+  const diagChassisQ = new THREE.Quaternion();
+
   const tyreGripFactor = (tempC: number, wear01: number): number => {
     const tempDelta = Math.abs(tempC - TYRE_OPTIMAL_C);
     const tempFactor = Math.max(0.72, 1 - (tempDelta / 70) ** 1.35);
@@ -310,6 +382,15 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
   };
 
   function update(input: InputState, dt: number): void {
+    // Rapier's addForce accumulates across world.step() calls until
+    // resetForces() is called explicitly — there is no per-step auto-clear.
+    // Without this reset, downforce/drag/thrust from prior frames pile up
+    // every tick, the chassis then experiences forces orders of magnitude
+    // larger than intended (we've measured ~5x within one second), the car
+    // accelerates to 300 km/h and punches through the track. Reset first,
+    // then add this frame's forces clean.
+    rigidBody.resetForces(false);
+
     // Rapier vehicle speed sign is opposite to our visual convention
     // (car nose points toward -Z). Flip it so "forwardSpeed > 0" means
     // "moving toward the visual front of the car".
@@ -360,17 +441,37 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     const brake = input.brake;
     const wantsReverse = brake > 0 && throttle === 0 && forwardSpeed < 1.0;
 
+    // engineForce is now a SIGNED thrust scalar in newtons applied directly
+    // to the chassis: positive = toward the visual nose, negative = away.
     let engineForce = 0;
     if (throttle > 0) {
       if (forwardSpeed < TOP_SPEED_FORWARD) {
         const headroom = 1 - Math.max(forwardSpeed, 0) / TOP_SPEED_FORWARD;
-        engineForce = -ENGINE_FORCE_MAX * throttle * headroom;
+        engineForce = THRUST_FORWARD_MAX * throttle * headroom;
       }
     } else if (wantsReverse) {
       if (-forwardSpeed < TOP_SPEED_REVERSE) {
         const headroom = 1 - Math.max(-forwardSpeed, 0) / TOP_SPEED_REVERSE;
-        engineForce = REVERSE_FORCE_MAX * brake * headroom;
+        engineForce = -THRUST_REVERSE_MAX * brake * headroom;
       }
+    }
+
+    // Apply the thrust as a horizontal force on the chassis along the nose
+    // direction. We zero the y-component so engine power never lifts/pulls
+    // the car vertically when the chassis pitches. Brakes still go through
+    // the wheels (Rapier handles them correctly).
+    if (engineForce !== 0) {
+      const r = rigidBody.rotation();
+      tmpChassisQ.set(r.x, r.y, r.z, r.w);
+      tmpNose.set(0, 0, -1).applyQuaternion(tmpChassisQ);
+      rigidBody.addForce(
+        {
+          x: tmpNose.x * engineForce,
+          y: 0,
+          z: tmpNose.z * engineForce,
+        },
+        true,
+      );
     }
 
     // Brake force per axle. Active only when S is held and we're NOT in
@@ -396,9 +497,9 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
       const wheelLong = -localVel.z * cosS + localVel.x * sinS;
       const wheelLat = localVel.x * cosS + localVel.z * sinS;
 
-      // Slip proxies.
+      // Slip proxies — used only for the thermal/wear model, not by physics.
       const longSlip = Math.abs(engineForce) > 1
-        ? Math.min(Math.abs(engineForce) / ENGINE_FORCE_MAX, 1)
+        ? Math.min(Math.abs(engineForce) / THRUST_FORWARD_MAX, 1)
         : Math.min(Math.abs(brakeRear + brakeFront) / BRAKE_REAR, 1);
       const latSlip = Math.min(Math.abs(wheelLat) / Math.max(Math.abs(wheelLong), 4), 1.6);
 
@@ -422,8 +523,10 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
       const tyreFactor = tyreGripFactor(tyreTempC[i]!, tyreWear[i]!);
       const wheelGrip = FRICTION_SLIP * tyreFactor * aeroGripFactor;
 
-      // Engine on rear wheels.
-      controller.setWheelEngineForce(i, w.isFront ? 0 : engineForce);
+      // No per-wheel engine force — propulsion is now a chassis-level thrust
+      // applied above. Keep this at zero so Rapier doesn't carry over a stale
+      // value from a previous tick.
+      controller.setWheelEngineForce(i, 0);
       // Steering on front wheels.
       controller.setWheelSteering(i, steer);
       // Brakes everywhere, biased to rear.
@@ -437,7 +540,92 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
 
     // Vehicle controller integration: applies wheel forces to the chassis.
     // Call this BEFORE world.step() each frame.
-    controller.updateVehicle(dt);
+    //
+    // Filter the wheel raycasts so they only see the road and barriers, never
+    // AI cars (kinematic) or checkpoint sensors. Without this, a wheel ray
+    // can hit an opponent's chassis underside as the player closes the gap,
+    // and the suspension snaps to its minimum because the "ground" suddenly
+    // appears 0.3-0.4 m above the asphalt.
+    controller.updateVehicle(
+      dt,
+      RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC |
+        RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+    );
+
+    // Bump diagnostic — runs BEFORE we overwrite dbg.suspensionLengths so
+    // the prev-frame value is still in dbg.suspensionLengths[i].
+    {
+      const ct = rigidBody.translation();
+      const cr = rigidBody.rotation();
+      diagChassisQ.set(cr.x, cr.y, cr.z, cr.w);
+      for (let i = 0; i < WHEELS.length; i++) {
+        const prevLen = dbg.suspensionLengths[i] ?? SUSPENSION_REST_LENGTH;
+        const currLen = controller.wheelSuspensionLength(i) ?? SUSPENSION_REST_LENGTH;
+        if (prevLen - currLen <= BUMP_DETECT_DELTA) continue;
+
+        diagOrigin.copy(wheelLocalConn[i]!).applyQuaternion(diagChassisQ);
+        diagOrigin.x += ct.x;
+        diagOrigin.y += ct.y;
+        diagOrigin.z += ct.z;
+        diagRay.origin.x = diagOrigin.x;
+        diagRay.origin.y = diagOrigin.y;
+        diagRay.origin.z = diagOrigin.z;
+        const maxToi = SUSPENSION_REST_LENGTH + WHEEL_RADIUS;
+        const hit = world.castRayAndGetNormal(
+          diagRay,
+          maxToi,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          rigidBody,
+        );
+        const lbl = WHEEL_LABELS[i];
+        if (hit) {
+          const hitY = diagOrigin.y + diagRay.dir.y * hit.timeOfImpact;
+          console.warn(
+            `[bump] ${lbl} susp ${prevLen.toFixed(3)}->${currLen.toFixed(3)} ` +
+              `origin=(${diagOrigin.x.toFixed(2)},${diagOrigin.y.toFixed(2)},${diagOrigin.z.toFixed(2)}) ` +
+              `hit y=${hitY.toFixed(3)} dist=${hit.timeOfImpact.toFixed(3)} ` +
+              `colliderHandle=${hit.collider.handle} ` +
+              `normal=(${hit.normal.x.toFixed(2)},${hit.normal.y.toFixed(2)},${hit.normal.z.toFixed(2)})`,
+          );
+        } else {
+          console.warn(
+            `[bump] ${lbl} susp ${prevLen.toFixed(3)}->${currLen.toFixed(3)} ` +
+              `but diagnostic ray missed everything within ${maxToi}m`,
+          );
+        }
+      }
+    }
+
+    // Debug snapshot for the diagnostic logger in main.ts.
+    dbg.forwardSpeed = forwardSpeed;
+    dbg.rawVehicleSpeed = controller.currentVehicleSpeed();
+    dbg.engineForce = engineForce;
+    dbg.brakeFront = brakeFront;
+    dbg.brakeRear = brakeRear;
+    dbg.smoothedSteer = smoothedSteer;
+    dbg.wantsReverse = wantsReverse;
+    dbg.downforce = downforce;
+    for (let i = 0; i < WHEELS.length; i++) {
+      dbg.wheelContacts[i] = controller.wheelIsInContact(i) ?? false;
+      dbg.suspensionLengths[i] =
+        controller.wheelSuspensionLength(i) ?? SUSPENSION_REST_LENGTH;
+      dbg.wheelRotations[i] = controller.wheelRotation(i) ?? 0;
+    }
+    const r = rigidBody.rotation();
+    tmpChassisQ.set(r.x, r.y, r.z, r.w);
+    // Yaw extracted from quaternion around Y. Equivalent to atan2(2(wy+xz), 1-2(y²+x²)).
+    dbg.yaw = Math.atan2(
+      2 * (r.w * r.y + r.x * r.z),
+      1 - 2 * (r.y * r.y + r.x * r.x),
+    );
+    // World-space direction of the visual nose (local -Z transformed by chassis rotation).
+    tmpNose.set(0, 0, -1).applyQuaternion(tmpChassisQ);
+    dbg.noseWorld.x = tmpNose.x;
+    dbg.noseWorld.y = tmpNose.y;
+    dbg.noseWorld.z = tmpNose.z;
   }
 
   function syncVisuals(): void {
@@ -495,5 +683,6 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
     syncVisuals,
     getSpeedKmh,
     getForwardSpeedKmh,
+    getDebug: () => dbg,
   };
 }
