@@ -4,6 +4,8 @@ export interface SceneBundle {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
+  /** Update camera aspect + renderer size. Caller owns the resize listener. */
+  resize(width: number, height: number): void;
 }
 
 export function createScene(canvasParent: HTMLElement): SceneBundle {
@@ -38,13 +40,13 @@ export function createScene(canvasParent: HTMLElement): SceneBundle {
   sun.shadow.camera.bottom = -60;
   scene.add(sun);
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  function resize(width: number, height: number): void {
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+    renderer.setSize(width, height);
+  }
 
-  return { scene, camera, renderer };
+  return { scene, camera, renderer, resize };
 }
 
 export function createGround(scene: THREE.Scene): THREE.Mesh {
