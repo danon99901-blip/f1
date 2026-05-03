@@ -18,7 +18,13 @@ export interface ClientReady {
   playerName: string;
 }
 
-export type ClientMessage = ClientInput | ClientReady;
+export interface ClientInitialPosition {
+  type: 'initial_position';
+  position: [number, number, number];
+  rotation: [number, number, number, number]; // quaternion (x, y, z, w)
+}
+
+export type ClientMessage = ClientInput | ClientReady | ClientInitialPosition;
 
 // ============================================================================
 // Host → Client messages
@@ -68,7 +74,13 @@ export interface RaceFinish {
   }[];
 }
 
-export type HostMessage = HostSnapshot | RaceConfig | RaceStart | RaceFinish;
+export interface InitialPosition {
+  type: 'initial_position';
+  position: [number, number, number];
+  rotation: [number, number, number, number]; // quaternion (x, y, z, w)
+}
+
+export type HostMessage = HostSnapshot | RaceConfig | RaceStart | RaceFinish | InitialPosition;
 
 // ============================================================================
 // Signaling server messages (for room management)

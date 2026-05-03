@@ -239,7 +239,10 @@ export class RacingState implements GameState {
       // Phase 1: Host sends race config to guests
       if (this.gameMode === 'multi_host') {
         this.sendRaceConfig(track.lapInfo.length);
+        // Send initial position to guests
+        this.sendInitialPosition();
       }
+      // Guest will send initial position after receiving race_config
     }
 
     // Setup ESC key to pause
@@ -573,6 +576,8 @@ export class RacingState implements GameState {
           this.handleHostSnapshot(message);
         } else if (message.type === 'race_config') {
           this.handleRaceConfig(message);
+        } else if (message.type === 'initial_position') {
+          this.handleHostInitialPosition(message);
         }
         if (originalOnHostMessage) {
           originalOnHostMessage(message);
@@ -586,6 +591,8 @@ export class RacingState implements GameState {
       client['callbacks'].onGuestMessage = (guestId, message) => {
         if (message.type === 'input') {
           this.handleGuestInput(guestId, message);
+        } else if (message.type === 'initial_position') {
+          this.handleGuestInitialPosition(guestId, message);
         }
         if (originalOnGuestMessage) {
           originalOnGuestMessage(guestId, message);
@@ -632,11 +639,71 @@ export class RacingState implements GameState {
     this.networkService.broadcastToGuests(config);
   }
 
+  private sendInitialPosition(): void {
+    if (!this.networkService || !this.playerController) return;
+
+    const vehicle = this.playerController.getVehicle();
+    const position = vehicle.rigidBody.translation();
+    const rotation = vehicle.rigidBody.rotation();
+
+    const message = {
+      type: 'initial_position' as const,
+      position: [position.x, position.y, position.z] as [number, number, number],
+      rotation: [rotation.x, rotation.y, rotation.z, rotation.w] as [number, number, number, number],
+    };
+
+    console.log('[RacingState] Sending initial position:', message);
+
+    if (this.gameMode === 'multi_host') {
+      this.networkService.broadcastToGuests(message);
+    } else if (this.gameMode === 'multi_guest') {
+      this.networkService.sendToHost(message);
+    }
+  }
+
   private handleRaceConfig(config: any): void {
     console.log('[RacingState] Guest received race_config:', config);
     // Update local state with host's config
     this.totalLaps = config.totalLaps;
     // Track length is already set by local track creation
+
+    // Guest sends initial position to host after receiving race_config
+    this.sendInitialPosition();
+  }
+
+  private handleHostInitialPosition(message: any): void {
+    if (!this.opponentController) return;
+
+    console.log('[RacingState] Guest received host initial_position:', message);
+
+    // Update the host's visual mesh position immediately
+    const hostPlayer = this.roomInfo?.players.find(p => p.id !== this.playerId);
+    if (hostPlayer) {
+      const mesh = this.opponentController.getRemotePlayerMesh(hostPlayer.id);
+      if (mesh) {
+        const [x, y, z] = message.position;
+        const [qx, qy, qz, qw] = message.rotation;
+        mesh.position.set(x, y, z);
+        mesh.quaternion.set(qx, qy, qz, qw);
+        console.log(`[RacingState] Updated host mesh position to (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+      }
+    }
+  }
+
+  private handleGuestInitialPosition(guestId: string, message: any): void {
+    if (!this.opponentController) return;
+
+    console.log(`[RacingState] Host received guest ${guestId} initial_position:`, message);
+
+    // Update the guest's visual mesh position immediately
+    const mesh = this.opponentController.getRemotePlayerMesh(guestId);
+    if (mesh) {
+      const [x, y, z] = message.position;
+      const [qx, qy, qz, qw] = message.rotation;
+      mesh.position.set(x, y, z);
+      mesh.quaternion.set(qx, qy, qz, qw);
+      console.log(`[RacingState] Updated guest ${guestId} mesh position to (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+    }
   }
 
   private handleHostSnapshot(snapshot: any): void {
