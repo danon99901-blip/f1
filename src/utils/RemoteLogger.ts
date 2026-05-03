@@ -23,7 +23,9 @@ export class RemoteLogger {
 
     // Queue for remote logging
     this.queue.push(logEntry);
-    this.flush();
+
+    // Send immediately (don't wait for batching)
+    setTimeout(() => this.flush(), 0);
   }
 
   private static async flush() {
@@ -43,6 +45,10 @@ export class RemoteLogger {
       console.error('[RemoteLogger] Failed to send logs:', error);
     } finally {
       this.sending = false;
+      // If more logs were queued while sending, flush again
+      if (this.queue.length > 0) {
+        setTimeout(() => this.flush(), 100);
+      }
     }
   }
 }
