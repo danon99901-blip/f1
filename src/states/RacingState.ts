@@ -192,9 +192,8 @@ export class RacingState implements GameState {
       // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
 
-      // Pre-create visual meshes for all other players (Guest only)
-      // Host uses physical meshes from guestVehicles, not OpponentController
-      if (this.roomInfo && this.gameMode === 'multi_guest') {
+      // Pre-create visual meshes for all other players (both Host and Guest)
+      if (this.roomInfo && (this.gameMode === 'multi_guest' || this.gameMode === 'multi_host')) {
         console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
           this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
         console.log(`[RacingState] My playerId: ${this.playerId}`);
@@ -218,8 +217,6 @@ export class RacingState implements GameState {
             console.log(`[RacingState] Skipping self: ${player.id}`);
           }
         });
-      } else if (this.gameMode === 'multi_host') {
-        console.log('[RacingState] Host mode: guest meshes will be created by PhysicsService when guests send input');
       } else {
         console.warn('[RacingState] No roomInfo available for pre-creating meshes!');
       }
