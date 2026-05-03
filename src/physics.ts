@@ -7,6 +7,7 @@ export async function initPhysics(): Promise<RAPIER.World> {
   if (!initialized) {
     RemoteLogger.log('info', '[Physics] Starting RAPIER.init()...');
     try {
+      // Explicitly set WASM path for production builds
       await RAPIER.init();
       initialized = true;
       RemoteLogger.log('info', '[Physics] RAPIER.init() complete!');
