@@ -203,16 +203,13 @@ export class RacingState implements GameState {
             console.log(`[RacingState] Pre-creating player mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
             this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
 
-            // Set initial position at spawn point with offset
-            const initialPos = spawn.position.clone();
-            // Offset based on player index to avoid overlap
-            const playerIndex = this.roomInfo!.players.findIndex(p => p.id === player.id);
-            initialPos.x += (playerIndex - 1) * 1.5; // Spread players horizontally
+            // Set initial position from player's actual car position
+            const playerCarPos = this.playerController.vehicle.chassisMesh.position.clone();
+            const playerCarRot = this.playerController.vehicle.chassisMesh.quaternion.clone();
 
-            const initialRotation = new THREE.Quaternion();
-            initialRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawSpawn);
+            console.log(`[RacingState] Setting opponent ${player.id} initial position to player car position:`, playerCarPos);
 
-            this.opponentController!.setInitialPosition(player.id, initialPos, initialRotation);
+            this.opponentController!.setInitialPosition(player.id, playerCarPos, playerCarRot);
           } else {
             console.log(`[RacingState] Skipping self: ${player.id}`);
           }
