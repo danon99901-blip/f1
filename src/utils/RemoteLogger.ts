@@ -1,6 +1,8 @@
 // Remote logger that sends logs to Railway server
+// Disabled by default to avoid spamming production
+// Enable with: VITE_ENABLE_REMOTE_LOGGING=true
 
-const LOGGING_ENABLED = true;
+const LOGGING_ENABLED = import.meta.env.VITE_ENABLE_REMOTE_LOGGING === 'true';
 const LOG_ENDPOINT = 'https://f1-production-c1df.up.railway.app/log';
 
 export class RemoteLogger {
@@ -53,18 +55,20 @@ export class RemoteLogger {
   }
 }
 
-// Global error handler
-window.addEventListener('error', (event) => {
-  RemoteLogger.log('error', 'Uncaught error', {
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
-    colno: event.colno,
+// Global error handler (only if logging enabled)
+if (LOGGING_ENABLED) {
+  window.addEventListener('error', (event) => {
+    RemoteLogger.log('error', 'Uncaught error', {
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    });
   });
-});
 
-window.addEventListener('unhandledrejection', (event) => {
-  RemoteLogger.log('error', 'Unhandled promise rejection', {
-    reason: event.reason,
+  window.addEventListener('unhandledrejection', (event) => {
+    RemoteLogger.log('error', 'Unhandled promise rejection', {
+      reason: event.reason,
+    });
   });
-});
+}
