@@ -127,12 +127,12 @@ export interface Vehicle {
   getDebug(): VehicleDebug;
 }
 
-function buildChassisMesh(): THREE.Group {
+function buildChassisMesh(color: number = 0xe10600): THREE.Group {
   const group = new THREE.Group();
 
   // Main tub (low, sleek body).
   const bodyMat = new THREE.MeshStandardMaterial({
-    color: 0xe10600,
+    color,
     roughness: 0.35,
     metalness: 0.45,
   });
@@ -246,7 +246,7 @@ function buildWheelMesh(): THREE.Object3D {
   return steerGroup;
 }
 
-export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle {
+export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: number): Vehicle {
   const RAPIER = getRAPIER();
 
   // --- Chassis rigid body ---------------------------------------------------
@@ -318,7 +318,7 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle 
   }
 
   // --- Visuals --------------------------------------------------------------
-  const chassisMesh = buildChassisMesh();
+  const chassisMesh = buildChassisMesh(color);
   scene.add(chassisMesh);
 
   const wheelMeshes: THREE.Object3D[] = [];

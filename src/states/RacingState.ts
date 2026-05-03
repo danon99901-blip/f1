@@ -118,14 +118,26 @@ export class RacingState implements GameState {
     );
 
     console.log('[RacingState] Creating vehicle...');
-    // Create local player
-    const localVehicle = this.physicsService!.createVehicle('local', scene);
+    // Create local player with color from roomInfo
+    const localPlayerColor = this.gameMode !== 'single' && this.roomInfo
+      ? this.roomInfo.players.find(p => p.id === this.playerId)?.carColor
+      : undefined;
+    const localVehicle = this.physicsService!.createVehicle('local', scene, localPlayerColor);
     // Track vehicle meshes for cleanup
     this.vehicleMeshes.push(localVehicle.chassisMesh);
     this.vehicleMeshes.push(...localVehicle.wheelMeshes);
 
     console.log('[RacingState] Spawn position:', spawn.position, 'yaw:', yawSpawn);
-    localVehicle.rigidBody.setTranslation(spawn.position, true);
+
+    // Apply spawn offset for multiplayer (host left, guest right)
+    const spawnPos = spawn.position.clone();
+    if (this.gameMode === 'multi_host') {
+      spawnPos.x -= 1.5; // Host spawns on left
+    } else if (this.gameMode === 'multi_guest') {
+      spawnPos.x += 1.5; // Guest spawns on right
+    }
+
+    localVehicle.rigidBody.setTranslation(spawnPos, true);
     localVehicle.rigidBody.setRotation(
       { x: 0, y: Math.sin(yawSpawn / 2), z: 0, w: Math.cos(yawSpawn / 2) },
       true
@@ -175,8 +187,8 @@ export class RacingState implements GameState {
         5
       );
     } else {
+      // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
-      // Remote players will be added via network events
     }
 
     console.log('[RacingState] Creating HUD...');
@@ -194,6 +206,11 @@ export class RacingState implements GameState {
 
     // Listen for race finish
     context.eventBus.on('race:all-finished', this.handleRaceFinished);
+
+    // Listen for player color changes in multiplayer
+    if (this.gameMode !== 'single') {
+      context.eventBus.on('network:player-color-changed', this.handlePlayerColorChanged);
+    }
 
     // Setup multiplayer event listeners
     if (this.gameMode !== 'single' && this.networkService) {
@@ -328,6 +345,9 @@ export class RacingState implements GameState {
   async exit(): Promise<void> {
     if (this.context) {
       this.context.eventBus.off('race:all-finished', this.handleRaceFinished);
+      if (this.gameMode !== 'single') {
+        this.context.eventBus.off('network:player-color-changed', this.handlePlayerColorChanged);
+      }
     }
 
     if (this.onKeyDown) {
@@ -466,6 +486,7 @@ export class RacingState implements GameState {
       const players = [{
         id: this.playerId!,
         name: this.roomInfo?.players.find(p => p.id === this.playerId)?.name ?? 'Host',
+        carColor: this.roomInfo?.players.find(p => p.id === this.playerId)?.carColor ?? 0xe10600,
         position: [position.x, position.y, position.z] as [number, number, number],
         rotation: [rotation.x, rotation.y, rotation.z, rotation.w] as [number, number, number, number],
         velocity: [velocity.x, velocity.y, velocity.z] as [number, number, number],
@@ -488,6 +509,7 @@ export class RacingState implements GameState {
         players.push({
           id: guestId,
           name: this.roomInfo?.players.find(p => p.id === guestId)?.name ?? 'Guest',
+          carColor: this.roomInfo?.players.find(p => p.id === guestId)?.carColor ?? 0xe10600,
           position: [guestPos.x, guestPos.y, guestPos.z] as [number, number, number],
           rotation: [guestRot.x, guestRot.y, guestRot.z, guestRot.w] as [number, number, number, number],
           velocity: [guestVel.x, guestVel.y, guestVel.z] as [number, number, number],
@@ -673,7 +695,10 @@ export class RacingState implements GameState {
     if (!this.physicsService || !this.renderService || !this.raceController || !this.playerController) return;
 
     const scene = this.renderService.getScene();
-    const vehicle = this.physicsService.createVehicle(guestId, scene);
+
+    // Get guest color from roomInfo
+    const guestColor = this.roomInfo?.players.find(p => p.id === guestId)?.carColor;
+    const vehicle = this.physicsService.createVehicle(guestId, scene, guestColor);
 
     // Track vehicle meshes for cleanup
     this.vehicleMeshes.push(vehicle.chassisMesh);
@@ -684,10 +709,9 @@ export class RacingState implements GameState {
     const spawn = track.lapInfo.spawn;
     const yawSpawn = Math.atan2(-spawn.forward.x, -spawn.forward.z);
 
-    // Spawn slightly offset from host to avoid collision
-    const offsetX = (this.guestVehicles.size + 1) * 3; // 3 meters apart
+    // Guest always spawns on right (host is on left)
     const spawnPos = spawn.position.clone();
-    spawnPos.x += offsetX;
+    spawnPos.x += 1.5;
 
     vehicle.rigidBody.setTranslation(spawnPos, true);
     vehicle.rigidBody.setRotation(
@@ -764,5 +788,47 @@ export class RacingState implements GameState {
     if (this.context) {
       this.context.eventBus.emit('game:request-state-change', { from: 'racing', to: 'menu' });
     }
+  }
+
+  private handlePlayerColorChanged = (data: { playerId: string; color: number }) => {
+    console.log(`[RacingState] Player ${data.playerId} changed color to ${data.color.toString(16)}`);
+
+    // Update roomInfo
+    if (this.roomInfo) {
+      const player = this.roomInfo.players.find(p => p.id === data.playerId);
+      if (player) {
+        player.carColor = data.color;
+      }
+    }
+
+    // Update vehicle color if it exists
+    if (data.playerId === this.playerId) {
+      // Local player color changed
+      const vehicle = this.playerController?.getVehicle();
+      if (vehicle) {
+        this.updateVehicleColor(vehicle.chassisMesh, data.color);
+      }
+    } else {
+      // Guest vehicle color changed (Host only)
+      const guestData = this.guestVehicles.get(data.playerId);
+      if (guestData) {
+        this.updateVehicleColor(guestData.vehicle.chassisMesh, data.color);
+      }
+    }
+  };
+
+  private updateVehicleColor(chassisMesh: THREE.Object3D, color: number): void {
+    // Update all body parts that use the main color
+    chassisMesh.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        // Only update materials that were originally the Ferrari red (0xe10600)
+        const currentColor = child.material.color.getHex();
+        if (currentColor === 0xe10600 || child.material.userData.isBodyColor) {
+          child.material = child.material.clone();
+          child.material.color.setHex(color);
+          child.material.userData.isBodyColor = true;
+        }
+      }
+    });
   }
 }

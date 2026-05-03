@@ -37,7 +37,7 @@ export class PhysicsService implements Service {
     });
   }
 
-  createVehicle(id: string, scene: any): Vehicle {
+  createVehicle(id: string, scene: any, color?: number): Vehicle {
     if (!this.world) {
       throw new Error('PhysicsService not initialized');
     }
@@ -46,7 +46,7 @@ export class PhysicsService implements Service {
       throw new Error(`Vehicle ${id} already exists`);
     }
 
-    const vehicle = createVehicle(this.world, scene);
+    const vehicle = createVehicle(this.world, scene, color);
     this.vehicles.set(id, vehicle);
     return vehicle;
   }

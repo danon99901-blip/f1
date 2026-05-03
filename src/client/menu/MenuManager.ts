@@ -47,7 +47,7 @@ export class MenuManager {
     this.mainMenu.show();
   }
 
-  showLobby(roomInfo: RoomInfo, isHost: boolean): void {
+  showLobby(roomInfo: RoomInfo, isHost: boolean, localPlayerId: string): void {
     this.hideAll();
     this.state = 'lobby';
 
@@ -65,7 +65,10 @@ export class MenuManager {
         const updatedRoomInfo = { ...roomInfo, totalLaps: laps };
         this.lobbyMenu?.updateRoomInfo(updatedRoomInfo);
       },
-    });
+      onColorChange: (_color: number) => {
+        // Color changes are handled by LobbyState
+      },
+    }, localPlayerId);
 
     this.lobbyMenu.show();
   }

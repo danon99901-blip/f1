@@ -15,6 +15,7 @@ export interface GameEvents {
   'network:room-joined': { roomId: string; playerId: string };
   'network:player-joined': { playerId: string; playerName: string };
   'network:player-left': { playerId: string };
+  'network:player-color-changed': { playerId: string; color: number };
 
   // Race events
   'race:countdown-start': { seconds: number };
