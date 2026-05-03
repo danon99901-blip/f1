@@ -148,15 +148,26 @@ export class NetworkClient {
 
     let sentCount = 0;
     let closedCount = 0;
+    const channelStates: { peerId: string; state: string; sent: boolean }[] = [];
 
     this.dataChannels.forEach((channel, peerId) => {
-      if (channel.readyState === 'open') {
-        channel.send(JSON.stringify(message));
-        sentCount++;
+      const state = channel.readyState;
+      let sent = false;
+
+      if (state === 'open') {
+        try {
+          channel.send(JSON.stringify(message));
+          sentCount++;
+          sent = true;
+        } catch (error) {
+          console.error(`[Network] HOST BROADCAST ERROR: Failed to send to ${peerId}:`, error);
+        }
       } else {
         closedCount++;
-        console.warn(`[Network] Cannot send to ${peerId}: channel state is ${channel.readyState}`);
+        console.warn(`[Network] Cannot send to ${peerId}: channel state is ${state}`);
       }
+
+      channelStates.push({ peerId, state, sent });
     });
 
     // Log snapshot broadcasts (most frequent)
@@ -165,14 +176,17 @@ export class NetworkClient {
       if (!this.snapshotCounter) this.snapshotCounter = 0;
       this.snapshotCounter++;
       if (this.snapshotCounter % 50 === 0) {
-        console.log(`[Network] HOST BROADCAST: Sent ${sentCount} snapshots (${closedCount} channels closed). Sample data:`, {
+        console.log(`[Network] HOST BROADCAST #${this.snapshotCounter}: Sent ${sentCount} snapshots (${closedCount} channels closed). Total channels: ${this.dataChannels.size}`, {
           tick: message.tick,
           playerCount: message.players.length,
-          timestamp: message.timestamp
+          timestamp: message.timestamp,
+          channelStates: channelStates
         });
       }
     } else {
-      console.log(`[Network] HOST BROADCAST: ${message.type} to ${sentCount} guests (${closedCount} channels closed)`);
+      console.log(`[Network] HOST BROADCAST: ${message.type} to ${sentCount} guests (${closedCount} channels closed). Total channels: ${this.dataChannels.size}`, {
+        channelStates: channelStates
+      });
     }
   }
 
