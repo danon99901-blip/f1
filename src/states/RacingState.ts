@@ -34,6 +34,7 @@ export class RacingState implements GameState {
   private totalLaps = 10;
   private gameMode: 'single' | 'multi_host' | 'multi_guest' = 'single';
   private playerArcDistance = 0;
+  private onKeyDown: ((e: KeyboardEvent) => void) | null = null;
 
   async enter(context: StateContext): Promise<void> {
     this.context = context;
@@ -104,6 +105,15 @@ export class RacingState implements GameState {
 
     // Listen for race finish
     context.eventBus.on('race:all-finished', this.handleRaceFinished);
+
+    // Setup ESC key to pause
+    this.onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        this.handlePause();
+      }
+    };
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   update(dt: number): void {
@@ -143,15 +153,16 @@ export class RacingState implements GameState {
     if (this.hud) {
       const position = this.raceController.getPlayerPosition('local');
       const totalCars = this.raceController.getTotalCars();
+      const lapState = this.raceController.getPlayerLapState('local');
 
       this.hud.update({
         speedKmh: vehicle.getSpeedKmh(),
         gear: estimateGear(forwardSpeedKmh, input.throttle, input.brake),
-        currentLap: 1, // TODO: get from race controller
+        currentLap: lapState.currentLap,
         totalLaps: this.totalLaps,
-        lapTimeMs: 0, // TODO: get from race controller
-        lastLapMs: null,
-        bestLapMs: null,
+        lapTimeMs: lapState.currentLapTime * 1000,
+        lastLapMs: Number.isNaN(lapState.lastLapTime) ? null : lapState.lastLapTime * 1000,
+        bestLapMs: Number.isNaN(lapState.bestLapTime) ? null : lapState.bestLapTime * 1000,
         position: Math.max(1, Math.min(totalCars, position)),
         totalCars,
       });
@@ -165,6 +176,11 @@ export class RacingState implements GameState {
   async exit(): Promise<void> {
     if (this.context) {
       this.context.eventBus.off('race:all-finished', this.handleRaceFinished);
+    }
+
+    if (this.onKeyDown) {
+      window.removeEventListener('keydown', this.onKeyDown);
+      this.onKeyDown = null;
     }
 
     if (this.inputService) {
@@ -201,6 +217,12 @@ export class RacingState implements GameState {
       if (this.context.data) {
         this.context.data.raceResults = results;
       }
+    }
+  };
+
+  private handlePause = () => {
+    if (this.context) {
+      this.context.eventBus.emit('game:state-change', { from: 'racing', to: 'pause' });
     }
   };
 }

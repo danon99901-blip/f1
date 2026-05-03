@@ -141,6 +141,21 @@ export class RaceController {
     return this.players.get(playerId)?.position ?? 0;
   }
 
+  getPlayerLapState(playerId: string) {
+    const player = this.players.get(playerId);
+    if (!player) {
+      return {
+        currentLap: 0,
+        lastLapTime: NaN,
+        bestLapTime: NaN,
+        currentLapTime: 0,
+        position: 0,
+        nextCheckpointIndex: 0,
+      };
+    }
+    return player.lapTracker.state;
+  }
+
   getResults(): RaceResult[] {
     const results: RaceResult[] = [];
 

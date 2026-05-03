@@ -6,6 +6,7 @@ import { MenuState } from './states/MenuState';
 import { LobbyState } from './states/LobbyState';
 import { CountdownState } from './states/CountdownState';
 import { RacingState } from './states/RacingState';
+import { PauseState } from './states/PauseState';
 import { ResultsState } from './states/ResultsState';
 import { RemoteLogger } from './utils/RemoteLogger';
 import './hud/styles.css';
@@ -51,6 +52,7 @@ async function main() {
     states.set('lobby', new LobbyState());
     states.set('countdown', new CountdownState());
     states.set('racing', new RacingState());
+    states.set('pause', new PauseState());
     states.set('results', new ResultsState());
 
     gameSession.registerStates(states);

@@ -29,63 +29,71 @@ export class ResultsState implements GameState {
 
   private showResults(results: RaceResult[]): void {
     this.resultsContainer = document.createElement('div');
-    this.resultsContainer.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.9);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-family: monospace;
-      z-index: 1000;
+    this.resultsContainer.className = 'results-overlay';
+    this.resultsContainer.innerHTML = `
+      <div class="results-container">
+        <div class="results-title">RACE COMPLETE</div>
+        <div class="results-panel">
+          <div class="results-header">
+            <div class="results-header-col">POS</div>
+            <div class="results-header-col">DRIVER</div>
+            <div class="results-header-col">TIME</div>
+            <div class="results-header-col">BEST LAP</div>
+          </div>
+          <div class="results-table">
+            ${results.map((result) => this.createResultRow(result)).join('')}
+          </div>
+        </div>
+        <div class="results-buttons">
+          <button class="results-btn results-btn-primary" id="btn-restart">
+            <span class="results-btn-icon">↻</span>
+            Restart Race
+          </button>
+          <button class="results-btn" id="btn-menu">
+            <span class="results-btn-icon">←</span>
+            Main Menu
+          </button>
+        </div>
+      </div>
     `;
 
-    const title = document.createElement('h1');
-    title.textContent = 'Race Results';
-    title.style.cssText = 'font-size: 48px; margin-bottom: 40px;';
-    this.resultsContainer.appendChild(title);
+    document.body.appendChild(this.resultsContainer);
 
-    const table = document.createElement('div');
-    table.style.cssText = 'font-size: 24px; margin-bottom: 40px;';
-
-    results.forEach((result) => {
-      const row = document.createElement('div');
-      row.style.cssText = 'margin: 10px 0;';
-
-      const position = result.position === 1 ? '🥇' : result.position === 2 ? '🥈' : result.position === 3 ? '🥉' : `${result.position}.`;
-      const time = this.formatTime(result.totalTime);
-      const bestLap = result.bestLap ? this.formatTime(result.bestLap / 1000) : 'N/A';
-
-      row.textContent = `${position} ${result.name} - ${time} (Best: ${bestLap})`;
-      table.appendChild(row);
+    // Setup button handlers
+    this.resultsContainer.querySelector('#btn-restart')?.addEventListener('click', () => {
+      if (this.context) {
+        this.context.eventBus.emit('game:state-change', { from: 'results', to: 'racing' });
+      }
     });
 
-    this.resultsContainer.appendChild(table);
-
-    const button = document.createElement('button');
-    button.textContent = 'Back to Menu';
-    button.style.cssText = `
-      padding: 15px 30px;
-      font-size: 20px;
-      background: #e10600;
-      color: white;
-      border: none;
-      cursor: pointer;
-      font-family: monospace;
-    `;
-    button.onclick = () => {
+    this.resultsContainer.querySelector('#btn-menu')?.addEventListener('click', () => {
       if (this.context) {
         this.context.eventBus.emit('game:state-change', { from: 'results', to: 'menu' });
       }
-    };
-    this.resultsContainer.appendChild(button);
+    });
+  }
 
-    document.body.appendChild(this.resultsContainer);
+  private createResultRow(result: RaceResult): string {
+    const positionClass = result.position === 1 ? 'results-row-first' :
+                         result.position === 2 ? 'results-row-second' :
+                         result.position === 3 ? 'results-row-third' : '';
+
+    const positionIcon = result.position === 1 ? '🥇' :
+                        result.position === 2 ? '🥈' :
+                        result.position === 3 ? '🥉' :
+                        `P${result.position}`;
+
+    const time = this.formatTime(result.totalTime);
+    const bestLap = result.bestLap ? this.formatTime(result.bestLap / 1000) : '--:--.---';
+
+    return `
+      <div class="results-row ${positionClass}">
+        <div class="results-cell results-position">${positionIcon}</div>
+        <div class="results-cell results-name">${result.name}</div>
+        <div class="results-cell results-time">${time}</div>
+        <div class="results-cell results-best">${bestLap}</div>
+      </div>
+    `;
   }
 
   private formatTime(seconds: number): string {
