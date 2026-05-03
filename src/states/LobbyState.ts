@@ -3,12 +3,14 @@
 import type { GameState, StateContext } from '../core/GameStateMachine';
 import { LobbyMenu } from '../client/menu/LobbyMenu';
 import type { RoomInfo } from '../shared/types';
+import type { NetworkService } from '../services/NetworkService';
 
 export class LobbyState implements GameState {
   readonly name = 'lobby';
   private lobbyMenu: LobbyMenu | null = null;
   private context: StateContext | null = null;
   private roomInfo: RoomInfo | null = null;
+  private networkService: NetworkService | null = null;
 
   async enter(context: StateContext): Promise<void> {
     this.context = context;
@@ -21,10 +23,40 @@ export class LobbyState implements GameState {
     context.eventBus.on('network:player-left', this.handlePlayerLeft);
     context.eventBus.on('race:countdown-start', this.handleRaceStart);
 
-    // Get network service
-    const networkService = context.data?.serviceContainer?.resolve('network');
-    if (!networkService) {
-      console.error('[LobbyState] NetworkService not found');
+    // Get network service with explicit checks
+    if (!context.data) {
+      console.error('[LobbyState] Context data not found');
+      return;
+    }
+
+    if (!context.data.serviceContainer) {
+      console.error('[LobbyState] ServiceContainer not found');
+      return;
+    }
+
+    // Resolve and cache NetworkService
+    let networkService: NetworkService;
+    try {
+      networkService = await context.data.serviceContainer.resolve('network');
+
+      // Validate the resolved service
+      if (!networkService) {
+        throw new Error('NetworkService resolved to null or undefined');
+      }
+
+      console.log('[LobbyState] NetworkService resolved:', networkService);
+      console.log('[LobbyState] NetworkService type:', typeof networkService);
+      console.log('[LobbyState] NetworkService constructor:', networkService.constructor.name);
+      console.log('[LobbyState] Has connect method:', typeof networkService.connect);
+
+      if (typeof networkService.connect !== 'function') {
+        throw new Error(`NetworkService.connect is not a function (type: ${typeof networkService.connect})`);
+      }
+
+      this.networkService = networkService;
+    } catch (error) {
+      console.error('[LobbyState] Failed to resolve NetworkService:', error);
+      context.eventBus.emit('error:fatal', { message: 'Failed to initialize network service' });
       return;
     }
 
@@ -35,6 +67,7 @@ export class LobbyState implements GameState {
     } catch (error) {
       console.error('[LobbyState] Network connection failed:', error);
       context.eventBus.emit('error:fatal', { message: 'Failed to connect to server' });
+      this.networkService = null;
       return;
     }
 
@@ -72,6 +105,7 @@ export class LobbyState implements GameState {
       this.lobbyMenu = null;
     }
 
+    this.networkService = null;
     this.context = null;
     this.roomInfo = null;
   }
@@ -79,62 +113,68 @@ export class LobbyState implements GameState {
   private handleRoomCreated = (data: { roomId: string; playerId: string }) => {
     console.log('[LobbyState] Room created event:', data);
 
-    // Save playerId to context
-    if (this.context) {
-      this.context.data = { ...this.context.data, playerId: data.playerId };
-    }
+    // Defer UI updates to avoid race condition during state transition
+    setTimeout(() => {
+      // Save playerId to context
+      if (this.context) {
+        this.context.data = { ...this.context.data, playerId: data.playerId };
+      }
 
-    // Create initial room info for host
-    const playerName = this.context?.data?.playerName || 'Player';
-    this.roomInfo = {
-      roomId: data.roomId,
-      hostId: data.playerId,
-      players: [{
-        id: data.playerId,
-        name: playerName,
-        isHost: true,
-      }],
-      totalLaps: 3,
-      state: 'lobby',
-    };
+      // Create initial room info for host
+      const playerName = this.context?.data?.playerName || 'Player';
+      this.roomInfo = {
+        roomId: data.roomId,
+        hostId: data.playerId,
+        players: [{
+          id: data.playerId,
+          name: playerName,
+          isHost: true,
+        }],
+        totalLaps: 3,
+        state: 'lobby',
+      };
 
-    // Show lobby UI
-    this.showLobby();
+      // Show lobby UI
+      this.showLobby();
+    }, 0);
   };
 
   private handleRoomJoined = (data: { roomId: string; playerId: string; roomInfo?: any }) => {
     console.log('[LobbyState] Room joined event:', data);
 
-    // Save playerId to context
-    if (this.context) {
-      this.context.data = { ...this.context.data, playerId: data.playerId };
-    }
+    // Defer UI updates to avoid race condition during state transition
+    setTimeout(() => {
+      // Save playerId to context
+      if (this.context) {
+        this.context.data = { ...this.context.data, playerId: data.playerId };
+      }
 
-    // Update room info from network event
-    if (data.roomInfo) {
-      this.roomInfo = data.roomInfo;
-    } else if (!this.roomInfo) {
-      // Create initial room info if not exists (guest joining)
-      const playerName = this.context?.data?.playerName || 'Player';
-      this.roomInfo = {
-        roomId: data.roomId,
-        hostId: '', // Will be updated when we get full room info
-        players: [{
-          id: data.playerId,
-          name: playerName,
-          isHost: false,
-        }],
-        totalLaps: 3,
-        state: 'lobby',
-      };
-    }
+      // Update room info from network event
+      if (data.roomInfo) {
+        this.roomInfo = data.roomInfo;
+      } else if (!this.roomInfo) {
+        // Create initial room info if not exists (guest joining)
+        const playerName = this.context?.data?.playerName || 'Player';
+        this.roomInfo = {
+          roomId: data.roomId,
+          hostId: '', // Will be updated when we get full room info
+          players: [{
+            id: data.playerId,
+            name: playerName,
+            isHost: false,
+          }],
+          totalLaps: 3,
+          state: 'lobby',
+        };
+      }
 
-    // Show or update lobby UI
-    if (this.lobbyMenu) {
-      this.updateLobby();
-    } else {
-      this.showLobby();
-    }
+      // Show or update lobby UI
+      if (this.lobbyMenu) {
+        this.updateLobby();
+      } else {
+        this.showLobby();
+      }
+    }, 0);
   };
 
   private handlePlayerJoined = (data: { playerId: string; playerName: string }) => {
@@ -174,22 +214,16 @@ export class LobbyState implements GameState {
     this.lobbyMenu = new LobbyMenu(this.roomInfo, isHost, {
       onStartRace: () => {
         console.log('[LobbyState] Start race clicked');
-        // Get network service and start race
-        const networkService = this.context?.data?.serviceContainer?.resolve('network');
-        if (networkService) {
-          networkService.startRace();
+        if (this.networkService) {
+          this.networkService.startRace();
         }
       },
       onLeaveLobby: () => {
         console.log('[LobbyState] Leave lobby clicked');
-        if (this.context) {
-          // Disconnect from network
-          const networkService = this.context.data?.serviceContainer?.resolve('network');
-          if (networkService) {
-            networkService.leaveRoom();
-          }
-          this.context.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
+        if (this.networkService) {
+          this.networkService.leaveRoom();
         }
+        this.context?.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
       },
       onChangeLaps: (laps: number) => {
         console.log('[LobbyState] Laps changed to', laps);

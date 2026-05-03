@@ -21,6 +21,7 @@ export class GameStateMachine {
   private states = new Map<GameStateName, GameState>();
   private context: StateContext;
   private transitioning = false;
+  private transitionQueue: Array<{ name: GameStateName; data?: Record<string, any> }> = [];
 
   constructor(eventBus: EventBus) {
     this.context = { eventBus, data: {} };
@@ -36,9 +37,11 @@ export class GameStateMachine {
   async transitionTo(name: GameStateName, data?: Record<string, any>): Promise<void> {
     console.log('[GameStateMachine] transitionTo called:', name);
 
+    // If already transitioning, queue this transition
     if (this.transitioning) {
-      console.warn('[GameStateMachine] Already transitioning, rejecting');
-      throw new Error('Cannot transition while another transition is in progress');
+      console.log('[GameStateMachine] Already transitioning, queueing:', name);
+      this.transitionQueue.push({ name, data });
+      return;
     }
 
     const nextState = this.states.get(name);
@@ -80,6 +83,9 @@ export class GameStateMachine {
     } finally {
       this.transitioning = false;
       console.log('[GameStateMachine] Transition complete');
+
+      // Process queued transitions
+      this.processQueue();
     }
   }
 
@@ -102,7 +108,29 @@ export class GameStateMachine {
     return this.context;
   }
 
+  clearQueue(): void {
+    console.log('[GameStateMachine] Clearing transition queue');
+    this.transitionQueue = [];
+  }
+
+  private processQueue(): void {
+    if (this.transitionQueue.length > 0) {
+      const next = this.transitionQueue.shift();
+      if (next) {
+        console.log('[GameStateMachine] Processing queued transition:', next.name);
+        // Schedule on next tick to avoid deep recursion
+        setTimeout(() => {
+          this.transitionTo(next.name, next.data).catch((error) => {
+            console.error('[GameStateMachine] Queued transition failed:', error);
+            this.clearQueue();
+          });
+        }, 0);
+      }
+    }
+  }
+
   async dispose(): Promise<void> {
+    this.clearQueue();
     if (this.currentState) {
       await this.currentState.exit();
       this.currentState = null;

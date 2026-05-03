@@ -6,15 +6,22 @@ import { MainMenu } from '../client/menu/MainMenu';
 export class MenuState implements GameState {
   readonly name = 'menu';
   private mainMenu: MainMenu | null = null;
+  private actionInProgress = false;
 
   async enter(context: StateContext): Promise<void> {
 
     this.mainMenu = new MainMenu({
       onSinglePlayer: () => {
+        if (this.actionInProgress) return;
+        this.actionInProgress = true;
+
         console.log('[MenuState] Single player clicked');
         context.eventBus.emit('game:request-state-change', { from: 'menu', to: 'racing' });
       },
       onMultiplayerCreate: (playerName: string) => {
+        if (this.actionInProgress) return;
+        this.actionInProgress = true;
+
         console.log('[MenuState] Multiplayer create clicked, player:', playerName);
         context.eventBus.emit('game:request-state-change', {
           from: 'menu',
@@ -23,6 +30,9 @@ export class MenuState implements GameState {
         });
       },
       onMultiplayerJoin: (roomId: string, playerName: string) => {
+        if (this.actionInProgress) return;
+        this.actionInProgress = true;
+
         console.log('[MenuState] Multiplayer join clicked, room:', roomId, 'player:', playerName);
         context.eventBus.emit('game:request-state-change', {
           from: 'menu',
@@ -40,6 +50,8 @@ export class MenuState implements GameState {
   }
 
   async exit(): Promise<void> {
+    this.actionInProgress = false;
+
     if (this.mainMenu) {
       this.mainMenu.hide();
       this.mainMenu = null;

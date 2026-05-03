@@ -44,9 +44,16 @@ export class GameSession {
     this.serviceContainer.register('physics', () => new PhysicsService());
     this.serviceContainer.register('render', () => new RenderService());
     this.serviceContainer.register('input', () => new InputService());
-    this.serviceContainer.register(
+
+    // Register network service with explicit typing
+    this.serviceContainer.register<NetworkService>(
       'network',
-      () => new NetworkService({ signalingUrl, eventBus: this.eventBus })
+      () => {
+        const service = new NetworkService({ signalingUrl, eventBus: this.eventBus });
+        console.log('[GameSession] NetworkService factory called, created:', service);
+        console.log('[GameSession] NetworkService has connect:', typeof service.connect);
+        return service;
+      }
     );
 
     RemoteLogger.log('info', '[GameSession] Services registered');

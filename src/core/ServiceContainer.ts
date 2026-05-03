@@ -1,11 +1,24 @@
 // Dependency injection container for services
 
+import type { NetworkService } from '../services/NetworkService';
+import type { PhysicsService } from '../services/PhysicsService';
+import type { RenderService } from '../services/RenderService';
+import type { InputService } from '../services/InputService';
+
 export interface Service {
   init?(): Promise<void> | void;
   dispose?(): Promise<void> | void;
 }
 
 type ServiceFactory<T extends Service> = (container: ServiceContainer) => T;
+
+// Type map for registered services - extend this when adding new services
+export interface ServiceMap {
+  network: NetworkService;
+  physics: PhysicsService;
+  render: RenderService;
+  input: InputService;
+}
 
 export class ServiceContainer {
   private services = new Map<string, Service>();
@@ -20,10 +33,14 @@ export class ServiceContainer {
     this.factories.set(name, factory);
   }
 
+  async resolve<K extends keyof ServiceMap>(name: K): Promise<ServiceMap[K]>;
+  async resolve<T extends Service>(name: string): Promise<T>;
   async resolve<T extends Service>(name: string): Promise<T> {
     // Return existing instance if already created
     if (this.services.has(name)) {
-      return this.services.get(name) as T;
+      const cached = this.services.get(name) as T;
+      console.log(`[ServiceContainer] Returning cached service: ${name}`, cached);
+      return cached;
     }
 
     // Check for circular dependency
@@ -41,16 +58,28 @@ export class ServiceContainer {
       throw new Error(`Service ${name} is not registered`);
     }
 
+    console.log(`[ServiceContainer] Creating new service: ${name}`);
+
     // Mark as resolving
     this.resolving.add(name);
 
     try {
-      // Create instance
-      const service = factory(this);
+      // Create instance (factory may return Promise<Service>)
+      const service = await factory(this);
+
+      // Validate service
+      if (!service) {
+        throw new Error(`Factory for ${name} returned null or undefined`);
+      }
+
+      console.log(`[ServiceContainer] Service created: ${name}`, service);
+      console.log(`[ServiceContainer] Service type: ${typeof service}, constructor: ${service.constructor.name}`);
+
       this.services.set(name, service);
 
       // Initialize if needed
       if (service.init && !this.initialized.has(name)) {
+        console.log(`[ServiceContainer] Initializing service: ${name}`);
         await service.init();
         this.initialized.add(name);
       }
