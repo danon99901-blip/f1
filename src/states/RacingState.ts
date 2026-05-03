@@ -656,6 +656,25 @@ export class RacingState implements GameState {
         players,
       };
 
+      // Log every 50th snapshot to avoid spam
+      if (this.hostTick % 50 === 0) {
+        console.log('[HOST_BROADCAST] ===== SNAPSHOT SUMMARY (tick %d) =====', this.hostTick);
+        console.log('[HOST_BROADCAST] Total players in snapshot: %d', players.length);
+        console.log('[HOST_BROADCAST] this.players Map size: N/A (using players array)');
+        console.log('[HOST_BROADCAST] this.guestVehicles Map size: %d', this.guestVehicles.size);
+
+        players.forEach((player, index) => {
+          console.log('[HOST_BROADCAST] Player %d/%d: id=%s, name=%s, color=0x%s',
+            index + 1, players.length, player.id, player.name, player.carColor.toString(16));
+          console.log('[HOST_BROADCAST]   Position: (%.2f, %.2f, %.2f)',
+            player.position[0], player.position[1], player.position[2]);
+          console.log('[HOST_BROADCAST]   Velocity: (%.2f, %.2f, %.2f), Speed: %.1f km/h',
+            player.velocity[0], player.velocity[1], player.velocity[2], player.speedKmh);
+        });
+
+        console.log('[HOST_BROADCAST] ===== END SNAPSHOT SUMMARY =====');
+      }
+
       console.log('[HOST_BROADCAST] Broadcasting snapshot with %d players to guests', players.length);
       this.networkService.broadcastToGuests(snapshot);
       console.log('[HOST_BROADCAST] Snapshot sent successfully');
