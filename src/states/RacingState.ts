@@ -780,7 +780,9 @@ export class RacingState implements GameState {
     // Show notification to remaining players
     const playerName = this.roomInfo?.players.find(p => p.id === playerId)?.name ?? 'Player';
     console.log(`[RacingState] ${playerName} disconnected`);
-    // TODO: Add HUD notification system for player disconnect
+    if (this.hud) {
+      this.hud.showNotification(`${playerName} disconnected`, 'warning', 5000);
+    }
   }
 
   private handleHostDisconnect(): void {
@@ -788,14 +790,15 @@ export class RacingState implements GameState {
 
     // Show error message
     if (this.hud) {
-      // TODO: Add HUD error message system
-      alert('Host disconnected. Returning to menu...');
+      this.hud.showError('Host disconnected. Returning to menu...');
     }
 
-    // Return to menu
-    if (this.context) {
-      this.context.eventBus.emit('game:request-state-change', { from: 'racing', to: 'menu' });
-    }
+    // Return to menu after a short delay to let user see the notification
+    setTimeout(() => {
+      if (this.context) {
+        this.context.eventBus.emit('game:request-state-change', { from: 'racing', to: 'menu' });
+      }
+    }, 2000);
   }
 
   private handlePlayerColorChanged = (data: { playerId: string; color: number }) => {

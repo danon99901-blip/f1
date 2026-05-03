@@ -23,9 +23,13 @@ export interface HudState {
   networkStats?: NetworkStats | null;
 }
 
+export type NotificationType = 'info' | 'warning' | 'error' | 'success';
+
 export interface Hud {
   root: HTMLElement;
   update(state: HudState): void;
+  showNotification(message: string, type?: NotificationType, durationMs?: number): void;
+  showError(message: string): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -139,10 +143,16 @@ export function createHud(): Hud {
   reconnectBox.append(reconnectIcon, reconnectText, reconnectAttempt);
   reconnectOverlay.append(reconnectBox);
 
-  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, reconnectOverlay);
+  // ---- Notification system ----
+  const notificationContainer = el('div', 'hud-notification-container');
+
+  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, reconnectOverlay, notificationContainer);
 
   // Track previous best to flash on improvement.
   let lastBestMs: number | null = null;
+
+  // Active notifications tracking
+  const activeNotifications = new Set<HTMLElement>();
 
   function update(state: HudState): void {
     // Speed
@@ -238,5 +248,71 @@ export function createHud(): Hud {
     }
   }
 
-  return { root, update };
+  function showNotification(message: string, type: NotificationType = 'info', durationMs: number = 4000): void {
+    const notification = el('div', `hud-notification hud-notification-${type}`);
+
+    // Icon based on type
+    const icon = el('div', 'hud-notification-icon');
+    switch (type) {
+      case 'error':
+        icon.textContent = '✕';
+        break;
+      case 'warning':
+        icon.textContent = '⚠';
+        break;
+      case 'success':
+        icon.textContent = '✓';
+        break;
+      case 'info':
+      default:
+        icon.textContent = 'ℹ';
+        break;
+    }
+
+    const text = el('div', 'hud-notification-text', message);
+    notification.append(icon, text);
+
+    // Add to container
+    notificationContainer.append(notification);
+    activeNotifications.add(notification);
+
+    // Trigger enter animation
+    requestAnimationFrame(() => {
+      notification.classList.add('hud-notification-enter');
+    });
+
+    // Auto-remove after duration
+    const removeTimeout = setTimeout(() => {
+      notification.classList.remove('hud-notification-enter');
+      notification.classList.add('hud-notification-exit');
+
+      // Wait for exit animation
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+        activeNotifications.delete(notification);
+      }, 300);
+    }, durationMs);
+
+    // Allow manual dismiss on click
+    notification.addEventListener('click', () => {
+      clearTimeout(removeTimeout);
+      notification.classList.remove('hud-notification-enter');
+      notification.classList.add('hud-notification-exit');
+
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+        activeNotifications.delete(notification);
+      }, 300);
+    });
+  }
+
+  function showError(message: string): void {
+    showNotification(message, 'error', 6000); // Errors stay longer
+  }
+
+  return { root, update, showNotification, showError };
 }
