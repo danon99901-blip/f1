@@ -64,6 +64,29 @@ export class RaceController {
     });
   }
 
+  removePlayer(id: string): void {
+    const player = this.players.get(id);
+    if (player) {
+      // Dispose lap tracker
+      if (player.lapTracker && typeof player.lapTracker.dispose === 'function') {
+        player.lapTracker.dispose();
+      }
+
+      // If player was finished, decrement finished count
+      if (player.finished) {
+        this.finishedCount--;
+      }
+
+      // Remove from map
+      this.players.delete(id);
+
+      // Update positions after removal
+      this.updatePositions();
+
+      console.log(`[RaceController] Removed player ${id}, remaining: ${this.players.size}`);
+    }
+  }
+
   start(): void {
     this.raceStartTime = performance.now();
     this.eventBus.emit('race:start', undefined);

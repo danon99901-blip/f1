@@ -12,7 +12,7 @@ import { createTrack } from '../track/track';
 import { createGround } from '../scene';
 import { createHud, type Gear } from '../hud/hud';
 import { expDecayBlend } from '../utils/math';
-import type { RoomInfo } from '../shared/types';
+import type { RoomInfo, InputState } from '../shared/types';
 import * as THREE from 'three';
 
 function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {
@@ -407,7 +407,7 @@ export class RacingState implements GameState {
     }
 
     // Clean up guest vehicles
-    this.guestVehicles.forEach((guestData, guestId) => {
+    this.guestVehicles.forEach((_guestData, guestId) => {
       if (this.physicsService) {
         this.physicsService.destroyVehicle(guestId);
       }
@@ -523,7 +523,7 @@ export class RacingState implements GameState {
       };
     }
 
-    // Host receives input from Guests (for Phase 4)
+    // Host receives input from Guests
     if (this.gameMode === 'multi_host') {
       const originalOnGuestMessage = client['callbacks'].onGuestMessage;
       client['callbacks'].onGuestMessage = (guestId, message) => {
@@ -532,6 +532,31 @@ export class RacingState implements GameState {
         }
         if (originalOnGuestMessage) {
           originalOnGuestMessage(guestId, message);
+        }
+      };
+
+      // Handle player disconnection
+      const originalOnPlayerLeft = client['callbacks'].onPlayerLeft;
+      client['callbacks'].onPlayerLeft = (playerId) => {
+        console.log(`[RacingState] Player ${playerId} disconnected during race`);
+        this.handlePlayerDisconnect(playerId);
+        if (originalOnPlayerLeft) {
+          originalOnPlayerLeft(playerId);
+        }
+      };
+    }
+
+    // Guest handles host disconnection
+    if (this.gameMode === 'multi_guest') {
+      const originalOnError = client['callbacks'].onError;
+      client['callbacks'].onError = (message) => {
+        console.error(`[RacingState] Network error: ${message}`);
+        // If host disconnects, show error and return to menu
+        if (message.includes('Connection') || message.includes('lost')) {
+          this.handleHostDisconnect();
+        }
+        if (originalOnError) {
+          originalOnError(message);
         }
       };
     }
@@ -669,5 +694,52 @@ export class RacingState implements GameState {
       // Apply the latest input to the guest vehicle
       guestData.controller.update(guestData.lastInput, dt);
     });
+  }
+
+  private handlePlayerDisconnect(playerId: string): void {
+    console.log(`[RacingState] Handling disconnect for player ${playerId}`);
+
+    // Remove guest vehicle from physics and scene (Host only)
+    const guestData = this.guestVehicles.get(playerId);
+    if (guestData) {
+      // Remove from physics
+      if (this.physicsService) {
+        this.physicsService.destroyVehicle(playerId);
+      }
+
+      // Remove from race controller
+      if (this.raceController) {
+        this.raceController.removePlayer(playerId);
+      }
+
+      // Remove from map
+      this.guestVehicles.delete(playerId);
+      console.log(`[RacingState] Removed guest vehicle for ${playerId}`);
+    }
+
+    // Remove from remote opponents (visual representation)
+    if (this.opponentController) {
+      this.opponentController.removeRemotePlayer(playerId);
+    }
+
+    // Show notification to remaining players
+    const playerName = this.roomInfo?.players.find(p => p.id === playerId)?.name ?? 'Player';
+    console.log(`[RacingState] ${playerName} disconnected`);
+    // TODO: Add HUD notification system for player disconnect
+  }
+
+  private handleHostDisconnect(): void {
+    console.error('[RacingState] Host disconnected! Returning to menu...');
+
+    // Show error message
+    if (this.hud) {
+      // TODO: Add HUD error message system
+      alert('Host disconnected. Returning to menu...');
+    }
+
+    // Return to menu
+    if (this.context) {
+      this.context.eventBus.emit('game:request-state-change', { from: 'racing', to: 'menu' });
+    }
   }
 }

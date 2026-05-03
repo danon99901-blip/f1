@@ -77,6 +77,38 @@ export class OpponentController {
     });
   }
 
+  removeRemotePlayer(id: string): void {
+    const opponent = this.remoteOpponents.get(id);
+    if (opponent) {
+      // Remove mesh from scene
+      this.scene.remove(opponent.mesh);
+
+      // Dispose name tag
+      opponent.nameTag.dispose();
+
+      // Reset interpolator
+      opponent.interpolator.reset();
+
+      // Dispose geometries and materials
+      opponent.mesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat) => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+
+      // Remove from map
+      this.remoteOpponents.delete(id);
+      console.log(`[OpponentController] Removed remote player ${id}`);
+    }
+  }
+
   updateRemotePlayer(snapshot: PlayerSnapshot, timestamp: number): void {
     const opponent = this.remoteOpponents.get(snapshot.id);
     if (opponent) {
