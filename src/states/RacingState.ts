@@ -696,14 +696,14 @@ export class RacingState implements GameState {
     // Guest handles host disconnection
     if (this.gameMode === 'multi_guest') {
       const originalOnError = client['callbacks'].onError;
-      client['callbacks'].onError = (message) => {
-        console.error(`[RacingState] Network error: ${message}`);
+      client['callbacks'].onError = (message, errorType) => {
+        console.error(`[RacingState] Network error: ${message}, type: ${errorType}`);
         // If host disconnects, show error and return to menu
-        if (message.includes('Connection') || message.includes('lost')) {
+        if (errorType === 'host_disconnected' || message.includes('Connection') || message.includes('lost')) {
           this.handleHostDisconnect();
         }
         if (originalOnError) {
-          originalOnError(message);
+          originalOnError(message, errorType);
         }
       };
     }

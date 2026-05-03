@@ -4,6 +4,7 @@ import type { GameState, StateContext } from '../core/GameStateMachine';
 import { LobbyMenu } from '../client/menu/LobbyMenu';
 import type { RoomInfo } from '../shared/types';
 import type { NetworkService } from '../services/NetworkService';
+import type { NetworkErrorType } from '../client/network/NetworkClient';
 
 export class LobbyState implements GameState {
   readonly name = 'lobby';
@@ -23,6 +24,7 @@ export class LobbyState implements GameState {
     context.eventBus.on('network:player-left', this.handlePlayerLeft);
     context.eventBus.on('network:player-color-changed', this.handlePlayerColorChanged);
     context.eventBus.on('race:countdown-start', this.handleRaceStart);
+    context.eventBus.on('error:network', this.handleNetworkError);
 
     // Get network service with explicit checks
     if (!context.data) {
@@ -100,6 +102,7 @@ export class LobbyState implements GameState {
       this.context.eventBus.off('network:player-left', this.handlePlayerLeft);
       this.context.eventBus.off('network:player-color-changed', this.handlePlayerColorChanged);
       this.context.eventBus.off('race:countdown-start', this.handleRaceStart);
+      this.context.eventBus.off('error:network', this.handleNetworkError);
     }
 
     if (this.lobbyMenu) {
@@ -231,6 +234,58 @@ export class LobbyState implements GameState {
           this.context.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'countdown' });
         }
       }, 0);
+    }
+  };
+
+  private handleNetworkError = (data: { message: string; errorType?: NetworkErrorType }) => {
+    console.log('[LobbyState] Network error:', data.message, 'type:', data.errorType);
+
+    // Handle specific error types
+    switch (data.errorType) {
+      case 'room_not_found':
+        alert(`Room not found. The room may have been closed or the code is incorrect.\n\nReturning to menu...`);
+        if (this.networkService) {
+          this.networkService.disconnect();
+        }
+        this.context?.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
+        break;
+
+      case 'host_disconnected':
+        alert(`Host disconnected. The room has been closed.\n\nReturning to menu...`);
+        if (this.networkService) {
+          this.networkService.disconnect();
+        }
+        this.context?.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
+        break;
+
+      case 'race_already_started':
+        alert(`This race has already started. You cannot join now.\n\nReturning to menu...`);
+        if (this.networkService) {
+          this.networkService.disconnect();
+        }
+        this.context?.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
+        break;
+
+      case 'room_full':
+        alert(`This room is full (maximum 4 players).\n\nReturning to menu...`);
+        if (this.networkService) {
+          this.networkService.disconnect();
+        }
+        this.context?.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'menu' });
+        break;
+
+      case 'only_host_can_start':
+        alert('Only the host can start the race.');
+        break;
+
+      case 'need_more_players':
+        alert('Need at least 2 players to start the race.');
+        break;
+
+      default:
+        // For unknown errors, just log them
+        console.error('[LobbyState] Unknown network error:', data.message);
+        break;
     }
   };
 

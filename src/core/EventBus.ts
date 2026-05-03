@@ -1,5 +1,7 @@
 // Event bus for decoupled communication between components
 
+import type { NetworkErrorType } from '../client/network/NetworkClient';
+
 type EventHandler<T = any> = (data: T) => void;
 
 export interface GameEvents {
@@ -26,7 +28,7 @@ export interface GameEvents {
 
   // Error events
   'error:fatal': { message: string; error?: Error };
-  'error:network': { message: string };
+  'error:network': { message: string; errorType?: NetworkErrorType };
   'error:physics': { message: string };
 }
 

@@ -1,6 +1,6 @@
 // Network service wrapping NetworkClient with reconnect logic
 
-import { NetworkClient } from '../client/network/NetworkClient';
+import { NetworkClient, type NetworkErrorType } from '../client/network/NetworkClient';
 import type {
   HostMessage,
   ClientMessage,
@@ -71,9 +71,9 @@ export class NetworkService implements Service {
         // Guest messages are handled by game controllers
       },
 
-      onError: (message) => {
-        this.config.eventBus.emit('error:network', { message });
-        this.handleDisconnect(message);
+      onError: (message, errorType) => {
+        this.config.eventBus.emit('error:network', { message, errorType });
+        this.handleDisconnect(message, errorType);
       },
 
       onConnectionStateChange: (state) => {
@@ -177,9 +177,18 @@ export class NetworkService implements Service {
     return this.client?.getPlayerId() ?? null;
   }
 
-  private handleDisconnect(_reason: string): void {
+  private handleDisconnect(_reason: string, errorType?: NetworkErrorType): void {
     // Prevent infinite loop - check if already reconnecting or disposed
     if (this.isReconnecting || this.isDisposed) {
+      return;
+    }
+
+    // Don't attempt reconnect for certain error types
+    if (errorType === 'room_not_found' || errorType === 'host_disconnected') {
+      console.log(`[NetworkService] Not reconnecting due to error type: ${errorType}`);
+      this.config.eventBus.emit('error:fatal', {
+        message: `Cannot reconnect: ${errorType}`,
+      });
       return;
     }
 

@@ -10,6 +10,16 @@ import type { RoomInfo } from '../../shared/types';
 
 type NetworkMode = 'signaling' | 'host' | 'guest';
 
+export type NetworkErrorType =
+  | 'room_not_found'
+  | 'race_already_started'
+  | 'room_full'
+  | 'host_disconnected'
+  | 'only_host_can_start'
+  | 'need_more_players'
+  | 'connection_failed'
+  | 'unknown';
+
 export interface NetworkClientCallbacks {
   onRoomCreated: (roomId: string, playerId: string) => void;
   onRoomJoined: (roomInfo: RoomInfo, playerId: string) => void;
@@ -19,7 +29,7 @@ export interface NetworkClientCallbacks {
   onRaceStart: (countdown: number) => void;
   onHostMessage: (message: HostMessage) => void;
   onGuestMessage: (guestId: string, message: ClientMessage) => void;
-  onError: (message: string) => void;
+  onError: (message: string, errorType: NetworkErrorType) => void;
   onConnectionStateChange?: (state: 'connected' | 'connecting' | 'disconnected') => void;
 }
 
@@ -217,7 +227,7 @@ export class NetworkClient {
         break;
 
       case 'error':
-        this.callbacks.onError(message.message);
+        this.callbacks.onError(message.message, this.mapErrorMessageToType(message.message));
         break;
     }
   }
@@ -259,14 +269,14 @@ export class NetworkClient {
         if (this.callbacks.onConnectionStateChange) {
           this.callbacks.onConnectionStateChange('disconnected');
         }
-        this.callbacks.onError(`Connection to ${peerId} failed`);
+        this.callbacks.onError(`Connection to ${peerId} failed`, 'connection_failed');
         this.closePeerConnection(peerId);
       } else if (pc.connectionState === 'disconnected') {
         console.warn(`[Network] Connection to ${peerId} disconnected`);
         if (this.callbacks.onConnectionStateChange) {
           this.callbacks.onConnectionStateChange('disconnected');
         }
-        this.callbacks.onError(`Connection to ${peerId} lost`);
+        this.callbacks.onError(`Connection to ${peerId} lost`, 'connection_failed');
         this.closePeerConnection(peerId);
       }
     };
@@ -429,6 +439,28 @@ export class NetworkClient {
     } else if (this.mode === 'guest' && this.roomId && this.lastPlayerName) {
       this.joinRoom(this.roomId, this.lastPlayerName);
     }
+  }
+
+  private mapErrorMessageToType(message: string): NetworkErrorType {
+    const lowerMessage = message.toLowerCase();
+
+    if (lowerMessage.includes('room not found')) {
+      return 'room_not_found';
+    } else if (lowerMessage.includes('race already started')) {
+      return 'race_already_started';
+    } else if (lowerMessage.includes('room is full')) {
+      return 'room_full';
+    } else if (lowerMessage.includes('host disconnected') || lowerMessage.includes('room closed')) {
+      return 'host_disconnected';
+    } else if (lowerMessage.includes('only host can start')) {
+      return 'only_host_can_start';
+    } else if (lowerMessage.includes('need at least')) {
+      return 'need_more_players';
+    } else if (lowerMessage.includes('connection') || lowerMessage.includes('connect')) {
+      return 'connection_failed';
+    }
+
+    return 'unknown';
   }
 
   async getConnectionStats(): Promise<{ roundTripTime?: number } | null> {
