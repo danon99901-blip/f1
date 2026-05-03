@@ -1,0 +1,182 @@
+// Network service wrapping NetworkClient with reconnect logic
+
+import { NetworkClient } from '../client/network/NetworkClient';
+import type {
+  HostMessage,
+  ClientMessage,
+} from '../shared/protocol';
+import type { EventBus } from '../core/EventBus';
+import type { Service } from '../core/ServiceContainer';
+
+export interface NetworkServiceConfig {
+  signalingUrl: string;
+  eventBus: EventBus;
+}
+
+export class NetworkService implements Service {
+  private client: NetworkClient | null = null;
+  private config: NetworkServiceConfig;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
+  private reconnectTimer: number | null = null;
+
+  constructor(config: NetworkServiceConfig) {
+    this.config = config;
+  }
+
+  async connect(): Promise<void> {
+    if (this.client) {
+      console.warn('[NetworkService] Already connected');
+      return;
+    }
+
+    this.client = new NetworkClient(this.config.signalingUrl, {
+      onRoomCreated: (roomId, playerId) => {
+        this.config.eventBus.emit('network:room-created', { roomId, playerId });
+      },
+
+      onRoomJoined: (roomInfo, playerId) => {
+        this.config.eventBus.emit('network:room-joined', { roomId: roomInfo.roomId, playerId });
+      },
+
+      onPlayerJoined: (playerId, playerName) => {
+        this.config.eventBus.emit('network:player-joined', { playerId, playerName });
+      },
+
+      onPlayerLeft: (playerId) => {
+        this.config.eventBus.emit('network:player-left', { playerId });
+      },
+
+      onRaceStart: (countdown) => {
+        this.config.eventBus.emit('race:countdown-start', { seconds: countdown });
+      },
+
+      onHostMessage: (_message) => {
+        // Host messages are handled by game controllers
+      },
+
+      onGuestMessage: (_guestId, _message) => {
+        // Guest messages are handled by game controllers
+      },
+
+      onError: (message) => {
+        this.config.eventBus.emit('error:network', { message });
+        this.handleDisconnect(message);
+      },
+
+      onConnectionStateChange: (state) => {
+        if (state === 'connected') {
+          this.reconnectAttempts = 0;
+          this.config.eventBus.emit('network:connected', undefined);
+        } else if (state === 'disconnected') {
+          this.config.eventBus.emit('network:disconnected', { reason: 'Connection lost' });
+        }
+      },
+    });
+
+    try {
+      await this.client.connect();
+    } catch (error) {
+      this.config.eventBus.emit('error:network', {
+        message: error instanceof Error ? error.message : 'Connection failed',
+      });
+      throw error;
+    }
+  }
+
+  disconnect(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
+
+    this.reconnectAttempts = 0;
+  }
+
+  createRoom(playerName: string, totalLaps: number): void {
+    if (!this.client) {
+      throw new Error('NetworkService not connected');
+    }
+    this.client.createRoom(playerName, totalLaps);
+  }
+
+  joinRoom(roomId: string, playerName: string): void {
+    if (!this.client) {
+      throw new Error('NetworkService not connected');
+    }
+    this.client.joinRoom(roomId, playerName);
+  }
+
+  leaveRoom(): void {
+    if (this.client) {
+      this.client.leaveRoom();
+    }
+  }
+
+  startRace(): void {
+    if (!this.client) {
+      throw new Error('NetworkService not connected');
+    }
+    this.client.startRace();
+  }
+
+  broadcastToGuests(message: HostMessage): void {
+    if (this.client) {
+      this.client.broadcastToGuests(message);
+    }
+  }
+
+  sendToHost(message: ClientMessage): void {
+    if (this.client) {
+      this.client.sendToHost(message);
+    }
+  }
+
+  getClient(): NetworkClient | null {
+    return this.client;
+  }
+
+  isHost(): boolean {
+    return this.client?.isHost() ?? false;
+  }
+
+  getPlayerId(): string | null {
+    return this.client?.getPlayerId() ?? null;
+  }
+
+  private handleDisconnect(_reason: string): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.config.eventBus.emit('error:fatal', {
+        message: `Failed to reconnect after ${this.maxReconnectAttempts} attempts`,
+      });
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+
+    this.config.eventBus.emit('network:reconnecting', { attempt: this.reconnectAttempts });
+
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnect();
+    }, delay);
+  }
+
+  private async reconnect(): Promise<void> {
+    try {
+      await this.connect();
+    } catch (error) {
+      console.error('[NetworkService] Reconnect failed:', error);
+    }
+  }
+
+  dispose(): void {
+    this.disconnect();
+  }
+}

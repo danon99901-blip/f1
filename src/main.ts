@@ -1,196 +1,127 @@
-// Main entry point with menu system and multiplayer support
+// Main entry point with new production-ready architecture
 
-import { MenuManager } from './client/menu/MenuManager';
-import { NetworkClient } from './client/network/NetworkClient';
-import type { RoomInfo } from './shared/types';
+import { GameSession } from './game/GameSession';
+import { UIManager } from './ui/UIManager';
+import { MenuState } from './states/MenuState';
+import { LobbyState } from './states/LobbyState';
+import { CountdownState } from './states/CountdownState';
+import { RacingState } from './states/RacingState';
+import { ResultsState } from './states/ResultsState';
 import './hud/styles.css';
 
-// Signaling server URL - change this to your deployed server
 const SIGNALING_URL =
   (import.meta as any).env?.VITE_SIGNALING_URL || 'ws://localhost:3001';
 
 async function main() {
+  const appEl = document.getElementById('app');
   const loadingEl = document.getElementById('loading');
 
-  let networkClient: NetworkClient | null = null;
-  let currentRoomInfo: RoomInfo | null = null;
+  if (!appEl) {
+    throw new Error('#app element not found');
+  }
 
-  const menuManager = new MenuManager({
-    onSinglePlayer: async () => {
-      loadingEl?.classList.remove('hidden');
+  try {
+    // Create game session
+    const gameSession = new GameSession();
+    const eventBus = gameSession.getEventBus();
+    const serviceContainer = gameSession.getServiceContainer();
 
-      // Import and start single-player game
-      const { startSinglePlayerGame } = await import('./client/game/SinglePlayerGame');
-      await startSinglePlayerGame();
+    // Initialize game session
+    loadingEl?.classList.remove('hidden');
+    await gameSession.init(appEl, SIGNALING_URL);
+    loadingEl?.classList.add('hidden');
 
-      loadingEl?.classList.add('hidden');
-    },
+    // Create UI manager
+    const uiManager = new UIManager(eventBus);
 
-    onMultiplayerHost: async (playerName: string, totalLaps: number) => {
+    // Register game states
+    const states = new Map();
+    states.set('menu', new MenuState());
+    states.set('lobby', new LobbyState());
+    states.set('countdown', new CountdownState());
+    states.set('racing', new RacingState());
+    states.set('results', new ResultsState());
+
+    gameSession.registerStates(states);
+
+    // Setup state transition handlers
+    eventBus.on('game:state-change', async ({ to, from }) => {
+      console.log(`[Main] State transition: ${from} → ${to}`);
+
       try {
-        loadingEl?.classList.remove('hidden');
+        // Pass service container to states that need it
+        const stateData: Record<string, any> = { serviceContainer };
 
-        networkClient = new NetworkClient(SIGNALING_URL, {
-          onRoomCreated: (roomId) => {
-            console.log(`[Main] Room created: ${roomId}`);
-          },
+        // Handle specific transitions
+        if (to === 'racing') {
+          if (from === 'menu') {
+            // Single-player mode
+            stateData.gameMode = 'single';
+            stateData.totalLaps = 10;
+          } else if (from === 'countdown') {
+            // Multiplayer mode (data already set by lobby)
+            stateData.gameMode = serviceContainer.has('network') ? 'multi_host' : 'single';
+          }
+        }
 
-          onRoomJoined: (roomInfo) => {
-            currentRoomInfo = roomInfo;
-            loadingEl?.classList.add('hidden');
-            menuManager.showLobby(roomInfo, true);
-          },
-
-          onPlayerJoined: (playerId, playerName) => {
-            if (currentRoomInfo) {
-              currentRoomInfo.players.push({
-                id: playerId,
-                name: playerName,
-                isHost: false,
-              });
-              menuManager.updateLobby(currentRoomInfo);
-            }
-          },
-
-          onPlayerLeft: (playerId) => {
-            if (currentRoomInfo) {
-              currentRoomInfo.players = currentRoomInfo.players.filter(
-                (p) => p.id !== playerId,
-              );
-              menuManager.updateLobby(currentRoomInfo);
-            }
-          },
-
-          onRaceStart: async (countdown) => {
-            console.log(`[Main] Race starting in ${countdown}s`);
-            menuManager.startGame();
-
-            // Start multiplayer game as host
-            const { startHostGame } = await import('./client/game/HostGameClient');
-            const playerNames = currentRoomInfo!.players.map((p) => ({
-              id: p.id,
-              name: p.name,
-            }));
-            await startHostGame(networkClient!, playerNames, currentRoomInfo!.totalLaps);
-          },
-
-          onHostMessage: (message) => {
-            // Guest receives host messages
-            console.log('[Main] Received from host:', message.type);
-          },
-
-          onGuestMessage: (guestId, message) => {
-            // Host receives guest messages
-            console.log(`[Main] Received from guest ${guestId}:`, message.type);
-          },
-
-          onError: (message) => {
-            console.error('[Main] Network error:', message);
-            menuManager.showError(message);
-            loadingEl?.classList.add('hidden');
-          },
+        await gameSession.transitionTo(to, stateData);
+      } catch (error) {
+        console.error('[Main] State transition error:', error);
+        eventBus.emit('error:fatal', {
+          message: `Failed to transition to ${to}`,
+          error: error instanceof Error ? error : undefined,
         });
-
-        await networkClient.connect();
-        networkClient.createRoom(playerName, totalLaps);
-      } catch (err) {
-        console.error('[Main] Failed to create room:', err);
-        menuManager.showError('Failed to connect to server');
-        loadingEl?.classList.add('hidden');
       }
-    },
+    });
 
-    onMultiplayerJoin: async (roomId: string, playerName: string) => {
-      try {
-        loadingEl?.classList.remove('hidden');
+    // Setup network event handlers
+    eventBus.on('network:connected', () => {
+      console.log('[Main] Network connected');
+    });
 
-        networkClient = new NetworkClient(SIGNALING_URL, {
-          onRoomCreated: () => {},
+    eventBus.on('network:disconnected', ({ reason }) => {
+      console.warn('[Main] Network disconnected:', reason);
+    });
 
-          onRoomJoined: (roomInfo) => {
-            currentRoomInfo = roomInfo;
-            loadingEl?.classList.add('hidden');
-            menuManager.showLobby(roomInfo, false);
-          },
+    eventBus.on('network:reconnecting', ({ attempt }) => {
+      console.log(`[Main] Reconnecting (attempt ${attempt})...`);
+    });
 
-          onPlayerJoined: (playerId, playerName) => {
-            if (currentRoomInfo) {
-              currentRoomInfo.players.push({
-                id: playerId,
-                name: playerName,
-                isHost: false,
-              });
-              menuManager.updateLobby(currentRoomInfo);
-            }
-          },
+    // Setup race event handlers
+    eventBus.on('race:lap-complete', ({ playerId, lapNumber, lapTime }) => {
+      console.log(`[Main] Player ${playerId} completed lap ${lapNumber} in ${lapTime}ms`);
+    });
 
-          onPlayerLeft: (playerId) => {
-            if (currentRoomInfo) {
-              currentRoomInfo.players = currentRoomInfo.players.filter(
-                (p) => p.id !== playerId,
-              );
-              menuManager.updateLobby(currentRoomInfo);
-            }
-          },
+    eventBus.on('race:finish', ({ playerId, position, totalTime }) => {
+      console.log(`[Main] Player ${playerId} finished in position ${position} (${totalTime}s)`);
+    });
 
-          onRaceStart: async (countdown) => {
-            console.log(`[Main] Race starting in ${countdown}s`);
-            menuManager.startGame();
+    // Expose game session for debugging
+    (window as any).__game = {
+      session: gameSession,
+      eventBus,
+      serviceContainer,
+      uiManager,
+      transitionTo: (state: string) => gameSession.transitionTo(state),
+      pause: () => gameSession.pauseGame(),
+      resume: () => gameSession.resumeGame(),
+    };
 
-            // Start multiplayer game as guest
-            const { startGuestGame } = await import('./client/game/GuestGameClient');
-            await startGuestGame(
-              networkClient!,
-              networkClient!.getPlayerId()!,
-              currentRoomInfo!.totalLaps,
-            );
-          },
+    // Start game at menu
+    await gameSession.start('menu');
 
-          onHostMessage: (message) => {
-            console.log('[Main] Received from host:', message.type);
-          },
-
-          onGuestMessage: () => {},
-
-          onError: (message) => {
-            console.error('[Main] Network error:', message);
-            menuManager.showError(message);
-            loadingEl?.classList.add('hidden');
-          },
-        });
-
-        await networkClient.connect();
-        networkClient.joinRoom(roomId, playerName);
-      } catch (err) {
-        console.error('[Main] Failed to join room:', err);
-        menuManager.showError('Failed to connect to server');
-        loadingEl?.classList.add('hidden');
-      }
-    },
-
-    onStartRace: () => {
-      if (networkClient && networkClient.isHost()) {
-        networkClient.startRace();
-      }
-    },
-
-    onLeaveLobby: () => {
-      if (networkClient) {
-        networkClient.leaveRoom();
-        networkClient.disconnect();
-        networkClient = null;
-      }
-      currentRoomInfo = null;
-    },
-  });
-
-  // Show main menu
-  loadingEl?.classList.add('hidden');
-  menuManager.showMainMenu();
+    console.log('[Main] Game initialized successfully');
+  } catch (error) {
+    console.error('[Main] Initialization error:', error);
+    if (loadingEl) {
+      loadingEl.textContent = 'ERROR — see console';
+      loadingEl.classList.remove('hidden');
+    }
+  }
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error('[Main] Fatal error:', err);
   const el = document.getElementById('loading');
   if (el) el.textContent = 'ERROR — see console';
 });
