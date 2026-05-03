@@ -17,11 +17,18 @@ export class GameSession {
   private gameLoop: GameLoop;
   private initialized = false;
 
+  private renderService: RenderService | null = null;
+
   constructor() {
     this.eventBus = new EventBus();
     this.serviceContainer = new ServiceContainer();
     this.stateMachine = new GameStateMachine(this.eventBus);
     this.gameLoop = new GameLoop((dt) => this.update(dt));
+
+    // Add serviceContainer to state machine context
+    this.stateMachine.getContext().data = {
+      serviceContainer: this.serviceContainer,
+    };
 
     this.setupErrorHandling();
   }
@@ -44,13 +51,10 @@ export class GameSession {
 
     RemoteLogger.log('info', '[GameSession] Services registered');
 
-    // Initialize core services
-    RemoteLogger.log('info', '[GameSession] Initializing physics...');
-    await this.serviceContainer.resolve<PhysicsService>('physics');
-
+    // Initialize only render service (physics will be initialized when needed)
     RemoteLogger.log('info', '[GameSession] Initializing render...');
-    const renderService = await this.serviceContainer.resolve<RenderService>('render');
-    renderService.initWithContainer(container);
+    this.renderService = await this.serviceContainer.resolve<RenderService>('render');
+    this.renderService.initWithContainer(container);
 
     RemoteLogger.log('info', '[GameSession] Initializing input...');
     await this.serviceContainer.resolve<InputService>('input');
@@ -76,6 +80,11 @@ export class GameSession {
 
   private update(dt: number): void {
     this.stateMachine.update(dt);
+
+    // Render the scene
+    if (this.renderService) {
+      this.renderService.render(dt);
+    }
   }
 
   async transitionTo(state: string, data?: Record<string, any>): Promise<void> {
@@ -103,11 +112,22 @@ export class GameSession {
   }
 
   private setupErrorHandling(): void {
+    // Handle state change requests from states (but not from GameStateMachine itself)
+    this.eventBus.on('game:request-state-change', ({ to, data }) => {
+      console.log('[GameSession] State change requested:', to);
+      this.transitionTo(to, data).catch((err) => {
+        console.error('[GameSession] State transition failed:', err);
+        this.eventBus.emit('error:fatal', { message: 'State transition failed', error: err });
+      });
+    });
+
     this.eventBus.on('error:fatal', ({ message, error }) => {
       console.error('[GameSession] Fatal error:', message, error);
       this.gameLoop.pause();
-      // Transition to error state or menu
-      this.transitionTo('menu').catch(console.error);
+      // Transition to menu (but don't create infinite loop)
+      if (this.stateMachine.getCurrentStateName() !== 'menu') {
+        this.transitionTo('menu').catch(console.error);
+      }
     });
 
     this.eventBus.on('error:network', ({ message }) => {

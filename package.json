@@ -17,6 +17,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@dimforge/rapier3d": "^0.19.3",
     "@dimforge/rapier3d-compat": "^0.14.0",
     "postprocessing": "^6.36.0",
     "three": "^0.170.0",

@@ -13,6 +13,8 @@ export class UIManager {
   private screens = new Map<string, UIScreen>();
   private currentScreen: UIScreen | null = null;
   private eventBus: EventBus;
+  private stateChangeHandler: ((data: any) => void) | null = null;
+  private fatalErrorHandler: ((data: any) => void) | null = null;
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
@@ -43,13 +45,15 @@ export class UIManager {
   }
 
   private setupEventListeners(): void {
-    this.eventBus.on('game:state-change', ({ to }) => {
+    this.stateChangeHandler = ({ to }) => {
       this.handleStateChange(to as GameStateName);
-    });
+    };
+    this.eventBus.on('game:state-change', this.stateChangeHandler);
 
-    this.eventBus.on('error:fatal', ({ message }) => {
+    this.fatalErrorHandler = ({ message }) => {
       this.showErrorScreen(message);
-    });
+    };
+    this.eventBus.on('error:fatal', this.fatalErrorHandler);
   }
 
   private handleStateChange(_state: GameStateName): void {
@@ -98,7 +102,7 @@ export class UIManager {
     `;
     button.onclick = () => {
       document.body.removeChild(errorDiv);
-      this.eventBus.emit('game:state-change', { from: 'error', to: 'menu' });
+      this.eventBus.emit('game:request-state-change', { from: 'error', to: 'menu' });
     };
     errorDiv.appendChild(button);
 
@@ -106,6 +110,16 @@ export class UIManager {
   }
 
   dispose(): void {
+    // Remove event listeners
+    if (this.stateChangeHandler) {
+      this.eventBus.off('game:state-change', this.stateChangeHandler);
+      this.stateChangeHandler = null;
+    }
+    if (this.fatalErrorHandler) {
+      this.eventBus.off('error:fatal', this.fatalErrorHandler);
+      this.fatalErrorHandler = null;
+    }
+
     this.screens.forEach((screen) => screen.dispose());
     this.screens.clear();
     this.currentScreen = null;

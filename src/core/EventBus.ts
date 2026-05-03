@@ -5,6 +5,7 @@ type EventHandler<T = any> = (data: T) => void;
 export interface GameEvents {
   // State transitions
   'game:state-change': { from: string; to: string };
+  'game:request-state-change': { from: string; to: string; data?: any };
 
   // Network events
   'network:connected': void;
@@ -30,6 +31,7 @@ export interface GameEvents {
 
 export class EventBus {
   private handlers = new Map<keyof GameEvents, Set<EventHandler>>();
+  private onceHandlers = new Map<keyof GameEvents, Map<EventHandler, EventHandler>>();
 
   on<K extends keyof GameEvents>(event: K, handler: EventHandler<GameEvents[K]>): void {
     if (!this.handlers.has(event)) {
@@ -62,12 +64,41 @@ export class EventBus {
     const wrappedHandler = (data: GameEvents[K]) => {
       handler(data);
       this.off(event, wrappedHandler as EventHandler);
+      // Clean up the tracking map
+      const onceMap = this.onceHandlers.get(event);
+      if (onceMap) {
+        onceMap.delete(handler);
+        if (onceMap.size === 0) {
+          this.onceHandlers.delete(event);
+        }
+      }
     };
     this.on(event, wrappedHandler as EventHandler);
+
+    // Track the mapping for cleanup
+    if (!this.onceHandlers.has(event)) {
+      this.onceHandlers.set(event, new Map());
+    }
+    this.onceHandlers.get(event)!.set(handler, wrappedHandler as EventHandler);
   }
 
   clear(): void {
     this.handlers.clear();
+    this.onceHandlers.clear();
+  }
+
+  clearOnce<K extends keyof GameEvents>(event: K, handler: EventHandler<GameEvents[K]>): void {
+    const onceMap = this.onceHandlers.get(event);
+    if (onceMap) {
+      const wrappedHandler = onceMap.get(handler);
+      if (wrappedHandler) {
+        this.off(event, wrappedHandler);
+        onceMap.delete(handler);
+        if (onceMap.size === 0) {
+          this.onceHandlers.delete(event);
+        }
+      }
+    }
   }
 
   getHandlerCount(event: keyof GameEvents): number {

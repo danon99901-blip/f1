@@ -11,13 +11,24 @@ export class MenuState implements GameState {
 
     this.mainMenu = new MainMenu({
       onSinglePlayer: () => {
-        context.eventBus.emit('game:state-change', { from: 'menu', to: 'racing' });
+        console.log('[MenuState] Single player clicked');
+        context.eventBus.emit('game:request-state-change', { from: 'menu', to: 'racing' });
       },
-      onMultiplayerCreate: (_playerName: string) => {
-        context.eventBus.emit('game:state-change', { from: 'menu', to: 'lobby' });
+      onMultiplayerCreate: (playerName: string) => {
+        console.log('[MenuState] Multiplayer create clicked, player:', playerName);
+        context.eventBus.emit('game:request-state-change', {
+          from: 'menu',
+          to: 'lobby',
+          data: { playerName, serviceContainer: context.data?.serviceContainer }
+        });
       },
-      onMultiplayerJoin: (_roomId: string, _playerName: string) => {
-        context.eventBus.emit('game:state-change', { from: 'menu', to: 'lobby' });
+      onMultiplayerJoin: (roomId: string, playerName: string) => {
+        console.log('[MenuState] Multiplayer join clicked, room:', roomId, 'player:', playerName);
+        context.eventBus.emit('game:request-state-change', {
+          from: 'menu',
+          to: 'lobby',
+          data: { roomId, playerName, serviceContainer: context.data?.serviceContainer }
+        });
       },
     });
 

@@ -1,26 +1,33 @@
+// Physics module - Rapier physics engine
 import RAPIER from '@dimforge/rapier3d-compat';
-import { RemoteLogger } from './utils/RemoteLogger';
 
-let initialized = false;
+let rapierInstance: typeof RAPIER | null = null;
+let initPromise: Promise<void> | null = null;
 
 export async function initPhysics(): Promise<RAPIER.World> {
-  if (!initialized) {
-    RemoteLogger.log('info', '[Physics] Starting RAPIER.init()...');
-    try {
-      // Explicitly set WASM path for production builds
-      await RAPIER.init();
-      initialized = true;
-      RemoteLogger.log('info', '[Physics] RAPIER.init() complete!');
-    } catch (error) {
-      RemoteLogger.log('error', '[Physics] RAPIER.init() failed:', error);
-      throw error;
-    }
+  console.log('[Physics] Initializing Rapier...');
+
+  // Ensure RAPIER.init() is called only once
+  if (!initPromise) {
+    initPromise = RAPIER.init().then(() => {
+      rapierInstance = RAPIER;
+      console.log('[Physics] Rapier initialized successfully');
+    });
   }
-  RemoteLogger.log('info', '[Physics] Creating world...');
+
+  await initPromise;
+
   const gravity = { x: 0, y: -9.81, z: 0 };
   const world = new RAPIER.World(gravity);
-  RemoteLogger.log('info', '[Physics] World created!');
+
   return world;
 }
 
-export { RAPIER };
+export function getRAPIER(): typeof RAPIER {
+  console.log('[Physics] getRAPIER() called, rapierInstance:', rapierInstance ? 'initialized' : 'NULL');
+  if (!rapierInstance) {
+    throw new Error('[Physics] RAPIER not initialized. Call initPhysics() first and await its completion.');
+  }
+  return rapierInstance;
+}
+

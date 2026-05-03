@@ -14,6 +14,7 @@ export interface RacePlayer {
   finished: boolean;
   finishTime: number | null;
   position: number;
+  previousLap: number;
 }
 
 export interface RaceResult {
@@ -59,6 +60,7 @@ export class RaceController {
       finished: false,
       finishTime: null,
       position: 0,
+      previousLap: 1,
     });
   }
 
@@ -97,12 +99,13 @@ export class RaceController {
 
       // Check lap completion
       const lapState = player.lapTracker.state;
-      if (lapState.currentLap > player.lapTracker.state.currentLap) {
+      if (lapState.currentLap > player.previousLap) {
         this.eventBus.emit('race:lap-complete', {
           playerId: player.id,
-          lapNumber: lapState.currentLap - 1,
+          lapNumber: player.previousLap,
           lapTime: lapState.lastLapTime * 1000,
         });
+        player.previousLap = lapState.currentLap;
       }
 
       // Check race finish
@@ -177,6 +180,12 @@ export class RaceController {
   }
 
   dispose(): void {
+    // Clean up lap trackers first
+    this.players.forEach((player) => {
+      if (player.lapTracker && typeof player.lapTracker.dispose === 'function') {
+        player.lapTracker.dispose();
+      }
+    });
     this.players.clear();
   }
 }

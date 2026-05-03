@@ -49,7 +49,7 @@ export function createScene(canvasParent: HTMLElement): SceneBundle {
   return { scene, camera, renderer, resize };
 }
 
-export function createGround(scene: THREE.Scene): THREE.Mesh {
+export function createGround(scene: THREE.Scene): { mesh: THREE.Mesh; grid: THREE.GridHelper } {
   const geo = new THREE.PlaneGeometry(400, 400);
   const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.95, metalness: 0.0 });
   const mesh = new THREE.Mesh(geo, mat);
@@ -62,5 +62,5 @@ export function createGround(scene: THREE.Scene): THREE.Mesh {
   (grid.material as THREE.Material).opacity = 0.6;
   scene.add(grid);
 
-  return mesh;
+  return { mesh, grid };
 }

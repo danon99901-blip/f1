@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { RAPIER as RAPIER_NS } from '../physics';
+import { getRAPIER } from '../physics';
 import {
   CHECKPOINT_COUNT,
   KERB_WIDTH,
@@ -317,9 +317,11 @@ function buildRibbon(frames: TrackFrame[]): {
 function buildBarriers(
   world: RAPIER.World,
   frames: TrackFrame[],
-): THREE.Group {
+): { group: THREE.Group; colliders: RAPIER.Collider[] } {
+  const RAPIER_NS = getRAPIER();
   const group = new THREE.Group();
   group.name = 'TrackBarriers';
+  const colliders: RAPIER.Collider[] = [];
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xf4f4f4,
@@ -372,14 +374,15 @@ function buildBarriers(
         .setRotation({ x: 0, y: sinHalf, z: 0, w: cosHalf })
         .setFriction(0.7)
         .setRestitution(0.08);
-      world.createCollider(colliderDesc);
+      const collider = world.createCollider(colliderDesc);
+      colliders.push(collider);
     };
 
     createBarrierSegment(leftA, leftB);
     createBarrierSegment(rightA, rightB);
   }
 
-  return group;
+  return { group, colliders };
 }
 
 /**
@@ -436,6 +439,7 @@ function buildCheckpoints(
   frames: TrackFrame[],
   totalLength: number,
 ): TrackCheckpoint[] {
+  const RAPIER_NS = getRAPIER();
   const checkpoints: TrackCheckpoint[] = [];
   const spacing = totalLength / CHECKPOINT_COUNT;
   // Map each desired arc length to its nearest sample frame index.
@@ -477,6 +481,7 @@ function buildCheckpoints(
 }
 
 export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
+  const RAPIER_NS = getRAPIER();
   const curve = createCenterline();
   const frames = buildFrames(curve, TRACK_SEGMENTS);
   // Total arc length: distance from last sample back to first.
@@ -513,7 +518,7 @@ export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
   group.add(kerbLeft);
   group.add(kerbRight);
   group.add(startFinish);
-  group.add(barriers);
+  group.add(barriers.group);
   scene.add(group);
 
   // Trimesh collider for the full kerb-to-kerb strip.

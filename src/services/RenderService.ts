@@ -20,18 +20,46 @@ export class RenderService implements Service {
     this.scene = sceneData.scene;
     this.camera = sceneData.camera;
     this.renderer = sceneData.renderer;
-    this.composer = createComposer(this.renderer, this.scene, this.camera);
+
+    // Debug canvas
+    console.log('[RenderService] Canvas info:', {
+      width: this.renderer.domElement.width,
+      height: this.renderer.domElement.height,
+      style: this.renderer.domElement.style.cssText,
+      parent: this.renderer.domElement.parentElement?.tagName,
+      rect: this.renderer.domElement.getBoundingClientRect(),
+      zIndex: window.getComputedStyle(this.renderer.domElement).zIndex,
+    });
+
+    // Temporarily disable composer to avoid WebGL errors
+    // this.composer = createComposer(this.renderer, this.scene, this.camera);
 
     // Handle window resize
     this.resizeHandler = () => this.handleResize();
     window.addEventListener('resize', this.resizeHandler);
   }
 
+  private renderCount = 0;
+
   render(dt: number): void {
-    if (!this.composer) {
+    if (!this.renderer || !this.scene || !this.camera) {
       throw new Error('RenderService not initialized');
     }
-    this.composer.render(dt);
+
+    // Log first few renders to verify it's working
+    if (this.renderCount < 5) {
+      console.log(`[RenderService] Render #${this.renderCount}, dt:`, dt);
+      console.log(`[RenderService] Scene children:`, this.scene.children.length);
+      console.log(`[RenderService] Camera position:`, this.camera.position);
+      this.renderCount++;
+    }
+
+    // Direct rendering without composer (temporary fix)
+    if (this.composer) {
+      this.composer.render(dt);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   setSpeed(speedKmh: number): void {
@@ -97,6 +125,12 @@ export class RenderService implements Service {
       this.resizeHandler = null;
     }
 
+    // Dispose composer before nullifying
+    if (this.composer && typeof this.composer.dispose === 'function') {
+      this.composer.dispose();
+    }
+    this.composer = null;
+
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
@@ -104,7 +138,6 @@ export class RenderService implements Service {
 
     this.scene = null;
     this.camera = null;
-    this.composer = null;
     this.container = null;
   }
 }

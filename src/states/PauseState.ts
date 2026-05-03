@@ -105,20 +105,20 @@ export class PauseState implements GameState {
       if (this.context.data) {
         this.context.data.resuming = true;
       }
-      this.context.eventBus.emit('game:state-change', { from: 'pause', to: 'racing' });
+      this.context.eventBus.emit('game:request-state-change', { from: 'pause', to: 'racing' });
     }
   }
 
   private handleRestart(): void {
     if (this.context) {
       // Transition back to racing with fresh state
-      this.context.eventBus.emit('game:state-change', { from: 'pause', to: 'racing' });
+      this.context.eventBus.emit('game:request-state-change', { from: 'pause', to: 'racing' });
     }
   }
 
   private handleQuit(): void {
     if (this.context) {
-      this.context.eventBus.emit('game:state-change', { from: 'pause', to: 'menu' });
+      this.context.eventBus.emit('game:request-state-change', { from: 'pause', to: 'menu' });
     }
   }
 }

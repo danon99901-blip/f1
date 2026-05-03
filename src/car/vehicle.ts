@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
+import type RAPIER from '@dimforge/rapier3d-compat';
+import { getRAPIER } from '../physics';
 import type { InputState } from '../input';
 
 // --- F1-feel tuning constants -------------------------------------------------
@@ -246,6 +247,8 @@ function buildWheelMesh(): THREE.Object3D {
 }
 
 export function createVehicle(world: RAPIER.World, scene: THREE.Scene): Vehicle {
+  const RAPIER = getRAPIER();
+
   // --- Chassis rigid body ---------------------------------------------------
   const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(0, 1.2, 0)

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { RAPIER as RAPIER_NS } from '../physics';
+import { getRAPIER } from '../physics';
 import { createCarModel } from '../car/vehicle';
 import { buildRacingLine } from './racingLine';
 import { expDecayBlend, tangentToYaw } from '../utils/math';
@@ -50,6 +50,7 @@ export interface OpponentsController {
    *  `trackLength` after laps). */
   getPlayerPosition: (playerArcDistance: number) => number;
   getTotalCars: () => number;
+  dispose: () => void;
 }
 
 const OPPONENT_HALF = { x: 0.95, y: 0.35, z: 2.45 };
@@ -62,6 +63,7 @@ export function createOpponents(
   playerStartProgress: number,
   count = 5,
 ): OpponentsController {
+  const RAPIER_NS = getRAPIER();
   const racingLine = buildRacingLine();
   const opponents: Opponent[] = [];
   const debris: DebrisPiece[] = [];
@@ -230,7 +232,12 @@ export function createOpponents(
       planTargetOffset[i] = racingLine.query(opponent.distance + 6).offset;
     }
 
-    // Phase 2 — traffic & repulsion: fused O(n²) loop.
+    // Phase 2 — traffic & repulsion: O(n²) proximity checks.
+    // For small grids (5-10 cars) this is acceptable (~25-100 checks/frame).
+    // For larger grids (20+ cars), consider spatial hashing or broad-phase culling.
+    // Early exit optimization: skip pairs beyond maximum interaction range.
+    const MAX_INTERACTION_RANGE = 22; // metres, covers FOLLOW_TRIGGER
+
     for (let i = 0; i < opponents.length; i++) {
       const self = opponents[i]!;
       if (self.destroyed || !self.body) continue;
@@ -246,6 +253,9 @@ export function createOpponents(
         const other = opponents[j]!;
         if (other.destroyed) continue;
         const gap = lapGap(self.distance, other.distance);
+
+        // Early exit: skip if too far away
+        if (Math.abs(gap) > MAX_INTERACTION_RANGE) continue;
 
         if (gap > 0 && gap < nearestAheadGap) {
           nearestAheadGap = gap;
@@ -412,10 +422,50 @@ export function createOpponents(
     return ahead + 1;
   }
 
+  function dispose(): void {
+    // Clean up all AI opponents
+    opponents.forEach((opponent) => {
+      if (!opponent.destroyed) {
+        scene.remove(opponent.mesh);
+        if (opponent.collider) {
+          world.removeCollider(opponent.collider, false);
+        }
+        if (opponent.body) {
+          world.removeRigidBody(opponent.body);
+        }
+      }
+      // Dispose geometries and materials for all opponents (destroyed or not)
+      opponent.mesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat) => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    });
+    opponents.length = 0;
+
+    // Clean up all debris pieces
+    debris.forEach((piece) => {
+      scene.remove(piece.mesh);
+      if (piece.mesh.geometry) piece.mesh.geometry.dispose();
+      if (piece.mesh.material instanceof THREE.Material) {
+        piece.mesh.material.dispose();
+      }
+    });
+    debris.length = 0;
+  }
+
   return {
     update,
     handlePlayerImpacts,
     getPlayerPosition,
     getTotalCars: () => 1 + opponents.filter((o) => !o.destroyed).length,
+    dispose,
   };
 }

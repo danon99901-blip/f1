@@ -22,6 +22,8 @@ export interface LapTracker {
   update: (dt: number) => void;
   /** Reset everything (e.g. after a respawn). */
   reset: () => void;
+  /** Clean up resources to prevent memory leaks. */
+  dispose: () => void;
 }
 
 /**
@@ -155,5 +157,12 @@ export function createLapTracker(
     // Out-of-order or repeated: ignore (prevents shortcuts and reverse laps).
   }
 
-  return { state, update, reset };
+  const dispose = () => {
+    // Clear references to help garbage collection
+    visited.clear();
+    prevOverlap.clear();
+    carColliderHandles.clear();
+  };
+
+  return { state, update, reset, dispose };
 }

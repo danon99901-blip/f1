@@ -20,10 +20,12 @@ export class GameLoop {
       return;
     }
 
+    console.log('[GameLoop] Starting...');
     this.running = true;
     this.paused = false;
     this.lastTime = performance.now();
     this.tick();
+    console.log('[GameLoop] Started successfully');
   }
 
   stop(): void {

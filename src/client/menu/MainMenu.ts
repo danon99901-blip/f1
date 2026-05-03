@@ -100,6 +100,7 @@ export class MainMenu {
 
     const handleCreate = () => {
       const name = nameInput?.value.trim();
+      console.log('[MainMenu] Create button clicked, name:', name);
       if (!name) {
         this.displayError(errorDiv, 'Please enter your name');
         return;
@@ -108,6 +109,7 @@ export class MainMenu {
         this.displayError(errorDiv, 'Name must be at least 2 characters');
         return;
       }
+      console.log('[MainMenu] Calling onMultiplayerCreate callback');
       this.callbacks.onMultiplayerCreate(name);
     };
 

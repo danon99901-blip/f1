@@ -62,13 +62,13 @@ export class ResultsState implements GameState {
     // Setup button handlers
     this.resultsContainer.querySelector('#btn-restart')?.addEventListener('click', () => {
       if (this.context) {
-        this.context.eventBus.emit('game:state-change', { from: 'results', to: 'racing' });
+        this.context.eventBus.emit('game:request-state-change', { from: 'results', to: 'racing' });
       }
     });
 
     this.resultsContainer.querySelector('#btn-menu')?.addEventListener('click', () => {
       if (this.context) {
-        this.context.eventBus.emit('game:state-change', { from: 'results', to: 'menu' });
+        this.context.eventBus.emit('game:request-state-change', { from: 'results', to: 'menu' });
       }
     });
   }

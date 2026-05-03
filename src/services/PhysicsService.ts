@@ -1,7 +1,7 @@
 // Physics service wrapping Rapier world
 
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { initPhysics, RAPIER as RAPIER_NS } from '../physics';
+import { initPhysics, getRAPIER } from '../physics';
 import type { Vehicle } from '../car/vehicle';
 import { createVehicle } from '../car/vehicle';
 import type { Service } from '../core/ServiceContainer';
@@ -14,12 +14,13 @@ export class PhysicsService implements Service {
     this.world = await initPhysics();
 
     // Create ground collider
+    const RAPIER_NS = getRAPIER();
     const groundCollider = RAPIER_NS.ColliderDesc.cuboid(400, 0.1, 400).setTranslation(
       0,
       -0.35,
       0
     );
-    this.world.createCollider(groundCollider);
+    this.world!.createCollider(groundCollider);
   }
 
   step(dt: number): void {
@@ -80,7 +81,19 @@ export class PhysicsService implements Service {
   }
 
   dispose(): void {
+    // Properly clean up all vehicles and their physics bodies
+    this.vehicles.forEach((vehicle) => {
+      if (this.world) {
+        // Remove rigid body (this also removes attached colliders)
+        this.world.removeRigidBody(vehicle.rigidBody);
+      }
+    });
     this.vehicles.clear();
+
+    // Free the Rapier world to release WebAssembly memory
+    if (this.world) {
+      this.world.free();
+    }
     this.world = null;
   }
 }

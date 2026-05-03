@@ -20,6 +20,8 @@ export class NetworkService implements Service {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private reconnectTimer: number | null = null;
+  private isReconnecting = false;
+  private isDisposed = false;
 
   constructor(config: NetworkServiceConfig) {
     this.config = config;
@@ -91,6 +93,8 @@ export class NetworkService implements Service {
       this.reconnectTimer = null;
     }
 
+    this.isReconnecting = false;
+
     if (this.client) {
       this.client.disconnect();
       this.client = null;
@@ -151,6 +155,11 @@ export class NetworkService implements Service {
   }
 
   private handleDisconnect(_reason: string): void {
+    // Prevent infinite loop - check if already reconnecting or disposed
+    if (this.isReconnecting || this.isDisposed) {
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.config.eventBus.emit('error:fatal', {
         message: `Failed to reconnect after ${this.maxReconnectAttempts} attempts`,
@@ -159,6 +168,7 @@ export class NetworkService implements Service {
     }
 
     this.reconnectAttempts++;
+    this.isReconnecting = true;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
     this.config.eventBus.emit('network:reconnecting', { attempt: this.reconnectAttempts });
@@ -169,14 +179,23 @@ export class NetworkService implements Service {
   }
 
   private async reconnect(): Promise<void> {
+    // Double-check state before attempting reconnect
+    if (this.isDisposed || !this.isReconnecting) {
+      return;
+    }
+
     try {
       await this.connect();
+      this.isReconnecting = false;
     } catch (error) {
       console.error('[NetworkService] Reconnect failed:', error);
+      this.isReconnecting = false;
+      // handleDisconnect will be called again by the error handler if needed
     }
   }
 
   dispose(): void {
+    this.isDisposed = true;
     this.disconnect();
   }
 }

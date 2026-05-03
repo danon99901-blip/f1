@@ -122,8 +122,26 @@ export class OpponentController {
       this.scene.remove(opponent.mesh);
       opponent.nameTag.dispose();
       opponent.interpolator.reset();
+      // Dispose geometries and materials
+      opponent.mesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat) => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
     });
     this.remoteOpponents.clear();
-    this.aiController = null;
+
+    // Clean up AI controller
+    if (this.aiController) {
+      this.aiController.dispose();
+      this.aiController = null;
+    }
   }
 }
