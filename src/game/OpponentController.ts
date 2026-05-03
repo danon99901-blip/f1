@@ -23,8 +23,6 @@ export class OpponentController {
   private aiController: OpponentsController | null = null;
   private remoteOpponents = new Map<string, RemoteOpponent>();
   private scene: THREE.Scene;
-  private colorIndex = 0;
-  private colors = [0x0066ff, 0xff9f1a, 0x7c4dff, 0x20bf55, 0xff3366];
 
   constructor(mode: OpponentMode, scene: THREE.Scene) {
     this.mode = mode;
@@ -50,14 +48,16 @@ export class OpponentController {
     }
   }
 
-  addRemotePlayer(id: string, name: string, isLocalPlayer: boolean): void {
+  addRemotePlayer(id: string, name: string, carColor: number, isLocalPlayer: boolean): void {
     if (this.mode !== 'remote') {
       throw new Error('OpponentController not in remote mode');
     }
 
     if (this.remoteOpponents.has(id)) return;
 
-    const mesh = createCarModel(this.colors[this.colorIndex % this.colors.length]!);
+    console.log(`[OpponentController] Adding remote player ${id} (${name}) with color 0x${carColor.toString(16)}`);
+
+    const mesh = createCarModel(carColor);
     this.scene.add(mesh);
 
     const nameTag = new PlayerNameTag(
@@ -65,8 +65,6 @@ export class OpponentController {
       isLocalPlayer ? '#00ff00' : '#ffffff'
     );
     nameTag.addToScene(this.scene);
-
-    this.colorIndex++;
 
     this.remoteOpponents.set(id, {
       id,

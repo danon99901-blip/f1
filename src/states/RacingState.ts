@@ -638,9 +638,11 @@ export class RacingState implements GameState {
       } else {
         // Remote player - add if not exists
         if (!this.opponentController!.getRemotePlayerMesh(playerSnapshot.id)) {
+          console.log(`[RacingState] Creating remote player ${playerSnapshot.id} with color 0x${playerSnapshot.carColor.toString(16)}`);
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
+            playerSnapshot.carColor,
             false
           );
         }
