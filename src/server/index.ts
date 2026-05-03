@@ -1,6 +1,6 @@
 // Signaling server entry point
 
-import { SignalingServer } from './SignalingServer';
+import { SignalingServer } from './SignalingServer.js';
 
 const PORT = parseInt(process.env.WS_PORT || '3001');
 

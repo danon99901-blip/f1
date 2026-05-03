@@ -6,7 +6,7 @@ import type {
   SignalingServerMessage,
   CreateRoom,
   JoinRoom,
-} from '../shared/protocol';
+} from '../shared/protocol.js';
 
 interface Player {
   id: string;
