@@ -43,11 +43,13 @@ export class PhysicsService implements Service {
     }
 
     if (this.vehicles.has(id)) {
-      throw new Error(`Vehicle ${id} already exists`);
+      console.error(`[PhysicsService] Vehicle ${id} already exists. Current vehicles:`, Array.from(this.vehicles.keys()));
+      throw new Error(`Vehicle ${id} already exists. This usually means RacingState.enter() was called multiple times without proper cleanup.`);
     }
 
     const vehicle = createVehicle(this.world, scene, color);
     this.vehicles.set(id, vehicle);
+    console.log(`[PhysicsService] Created vehicle ${id}. Total vehicles: ${this.vehicles.size}`);
     return vehicle;
   }
 
@@ -58,6 +60,7 @@ export class PhysicsService implements Service {
   destroyVehicle(id: string): void {
     const vehicle = this.vehicles.get(id);
     if (vehicle) {
+      console.log(`[PhysicsService] Destroying vehicle ${id}`);
       // Dispose vehicle resources first
       if (vehicle.dispose) {
         vehicle.dispose();
@@ -67,7 +70,19 @@ export class PhysicsService implements Service {
         this.world.removeRigidBody(vehicle.rigidBody);
       }
       this.vehicles.delete(id);
+      console.log(`[PhysicsService] Vehicle ${id} destroyed. Remaining vehicles: ${this.vehicles.size}`);
+    } else {
+      console.warn(`[PhysicsService] Attempted to destroy non-existent vehicle ${id}`);
     }
+  }
+
+  clearAllVehicles(): void {
+    console.log(`[PhysicsService] Clearing all vehicles (${this.vehicles.size} total)`);
+    const vehicleIds = Array.from(this.vehicles.keys());
+    vehicleIds.forEach(id => {
+      this.destroyVehicle(id);
+    });
+    console.log('[PhysicsService] All vehicles cleared');
   }
 
   getWorld(): RAPIER.World {

@@ -59,13 +59,15 @@ export class GameStateMachine {
     this.transitioning = true;
     console.log('[GameStateMachine] Transition started');
 
+    const previousState = this.currentState;
+    const fromName = previousState?.name ?? 'none';
+
     try {
-      const fromName = this.currentState?.name ?? 'none';
       console.log('[GameStateMachine] Exiting current state:', fromName);
 
       // Exit current state
-      if (this.currentState) {
-        await this.currentState.exit();
+      if (previousState) {
+        await previousState.exit();
         console.log('[GameStateMachine] Current state exited');
       }
 
@@ -85,6 +87,27 @@ export class GameStateMachine {
       console.log('[GameStateMachine] State change event emitted');
     } catch (error) {
       console.error('[GameStateMachine] Transition failed:', error);
+
+      // Rollback: restore previous state if enter() failed
+      if (this.currentState === nextState) {
+        console.warn('[GameStateMachine] Rolling back to previous state:', fromName);
+        this.currentState = previousState;
+
+        // If we had a previous state, try to re-enter it to restore consistency
+        if (previousState) {
+          try {
+            console.log('[GameStateMachine] Re-entering previous state for rollback');
+            await previousState.enter(this.context);
+            console.log('[GameStateMachine] Rollback successful, restored to:', fromName);
+          } catch (rollbackError) {
+            console.error('[GameStateMachine] Rollback failed:', rollbackError);
+            // If rollback fails, we're in an inconsistent state - set to null
+            this.currentState = null;
+            console.error('[GameStateMachine] State machine is now in inconsistent state (null)');
+          }
+        }
+      }
+
       throw error;
     } finally {
       this.transitioning = false;

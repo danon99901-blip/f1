@@ -105,6 +105,28 @@ export class RacingState implements GameState {
       console.log('[RacingState] Network resolved, playerId:', this.playerId, 'mode:', this.gameMode);
     }
 
+    // STEP 2: Defensive cleanup - ensure no leftover vehicles from previous failed transitions
+    console.log('[RacingState] Performing defensive cleanup of any existing vehicles...');
+    const existingLocalVehicle = this.physicsService!.getVehicle('local');
+    if (existingLocalVehicle) {
+      console.warn('[RacingState] Found existing local vehicle from previous failed transition, destroying it');
+      this.physicsService!.destroyVehicle('local');
+    }
+
+    // Also clean up any guest vehicles that might be leftover (multiplayer)
+    if (this.gameMode === 'multi_host' && this.roomInfo) {
+      this.roomInfo.players.forEach(player => {
+        if (player.id !== this.playerId) {
+          const existingGuestVehicle = this.physicsService!.getVehicle(player.id);
+          if (existingGuestVehicle) {
+            console.warn(`[RacingState] Found existing guest vehicle ${player.id} from previous failed transition, destroying it`);
+            this.physicsService!.destroyVehicle(player.id);
+          }
+        }
+      });
+    }
+    console.log('[RacingState] Defensive cleanup complete');
+
     console.log('[RacingState] Creating scene...');
     // Setup scene
     const scene = this.renderService!.getScene();
@@ -129,6 +151,7 @@ export class RacingState implements GameState {
     );
 
     console.log('[RacingState] Creating vehicle...');
+
     // Create local player with color from roomInfo
     const localPlayerColor = this.gameMode !== 'single' && this.roomInfo
       ? this.roomInfo.players.find(p => p.id === this.playerId)?.carColor
@@ -485,6 +508,11 @@ export class RacingState implements GameState {
       }
     });
     this.guestVehicles.clear();
+
+    // Clean up local player vehicle
+    if (this.physicsService) {
+      this.physicsService.destroyVehicle('local');
+    }
 
     this.playerController = null;
     this.clientPrediction = null;
@@ -960,6 +988,13 @@ export class RacingState implements GameState {
     if (!this.physicsService || !this.renderService || !this.raceController || !this.playerController) return;
 
     const scene = this.renderService.getScene();
+
+    // Check if guest vehicle already exists (from previous failed transition)
+    const existingVehicle = this.physicsService.getVehicle(guestId);
+    if (existingVehicle) {
+      console.warn(`[RacingState] Found existing vehicle for guest ${guestId}, destroying it before creating new one`);
+      this.physicsService.destroyVehicle(guestId);
+    }
 
     // Get guest color from roomInfo
     const guestColor = this.roomInfo?.players.find(p => p.id === guestId)?.carColor;
