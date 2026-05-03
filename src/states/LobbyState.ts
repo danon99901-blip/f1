@@ -157,7 +157,12 @@ export class LobbyState implements GameState {
 
   private handleRaceStart = () => {
     if (this.context) {
-      this.context.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'countdown' });
+      // Defer state change to avoid race condition during enter()
+      setTimeout(() => {
+        if (this.context) {
+          this.context.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'countdown' });
+        }
+      }, 0);
     }
   };
 

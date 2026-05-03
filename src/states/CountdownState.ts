@@ -15,7 +15,12 @@ export class CountdownState implements GameState {
     this.countdown = new CountdownOverlay();
     this.countdown.show(countdownSeconds, () => {
       if (this.context) {
-        this.context.eventBus.emit('game:request-state-change', { from: 'countdown', to: 'racing' });
+        // Defer state change to avoid race condition during enter()
+        setTimeout(() => {
+          if (this.context) {
+            this.context.eventBus.emit('game:request-state-change', { from: 'countdown', to: 'racing' });
+          }
+        }, 0);
       }
     });
   }
