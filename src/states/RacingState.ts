@@ -8,6 +8,7 @@ import type { NetworkService } from '../services/NetworkService';
 import { RaceController } from '../game/RaceController';
 import { PlayerController } from '../game/PlayerController';
 import { OpponentController } from '../game/OpponentController';
+import { ClientPrediction } from '../game/ClientPrediction';
 import { createTrack } from '../track/track';
 import { createGround } from '../scene';
 import { createHud, type Gear } from '../hud/hud';
@@ -51,6 +52,7 @@ export class RacingState implements GameState {
   private inputSeq = 0;
   private lastInputSendTime = 0;
   private inputSendInterval = 50; // 20 Hz (50ms between input packets)
+  private clientPrediction: ClientPrediction | null = null;
 
   // Host: guest vehicle simulation
   private guestVehicles = new Map<string, {
@@ -136,6 +138,12 @@ export class RacingState implements GameState {
 
     this.playerController = new PlayerController(localVehicle, track);
     this.raceController.addPlayer('local', 'Player', localVehicle.rigidBody);
+
+    // Initialize client-side prediction for guest
+    if (this.gameMode === 'multi_guest') {
+      this.clientPrediction = new ClientPrediction(this.playerController);
+      console.log('[RacingState] Client-side prediction enabled for guest');
+    }
 
     const playerStartProgress = track.getProgress(spawn.position);
     this.playerArcDistance = playerStartProgress * track.lapInfo.length;
@@ -415,6 +423,7 @@ export class RacingState implements GameState {
     this.guestVehicles.clear();
 
     this.playerController = null;
+    this.clientPrediction = null;
     this.physicsService = null;
     this.renderService = null;
     this.inputService = null;
@@ -587,10 +596,17 @@ export class RacingState implements GameState {
 
     const now = performance.now();
 
-    // Add remote players if not exists
+    // Process all players in snapshot
     snapshot.players.forEach((playerSnapshot: any) => {
-      if (playerSnapshot.id !== this.playerId) {
-        // Check if opponent exists, if not add it
+      if (playerSnapshot.id === this.playerId) {
+        // This is our local player - perform server reconciliation
+        if (this.clientPrediction) {
+          this.clientPrediction.reconcile(playerSnapshot, now);
+          // Clear old inputs that server has processed
+          this.clientPrediction.clearOldInputs(snapshot.timestamp);
+        }
+      } else {
+        // Remote player - add if not exists
         if (!this.opponentController!.getRemotePlayerMesh(playerSnapshot.id)) {
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
@@ -614,14 +630,21 @@ export class RacingState implements GameState {
       this.lastInputSendTime = 0;
       this.inputSeq++;
 
+      const timestamp = performance.now();
+
       const inputMessage = {
         type: 'input' as const,
         seq: this.inputSeq,
         throttle: input.throttle,
         brake: input.brake,
         steer: input.steer,
-        timestamp: performance.now(),
+        timestamp,
       };
+
+      // Record input for client-side prediction
+      if (this.clientPrediction) {
+        this.clientPrediction.recordInput(this.inputSeq, input, timestamp);
+      }
 
       this.networkService.sendToHost(inputMessage);
     }
