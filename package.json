@@ -12,9 +12,9 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "start:server": "node dist/server/server/index.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dimforge/rapier3d": "^0.19.3",
