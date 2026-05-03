@@ -206,7 +206,7 @@ export class RacingState implements GameState {
             // Set initial position at spawn point with offset
             const initialPos = spawn.position.clone();
             // Offset based on player index to avoid overlap
-            const playerIndex = this.roomInfo.players.findIndex(p => p.id === player.id);
+            const playerIndex = this.roomInfo!.players.findIndex(p => p.id === player.id);
             initialPos.x += (playerIndex - 1) * 1.5; // Spread players horizontally
 
             const initialRotation = new THREE.Quaternion();
@@ -252,6 +252,15 @@ export class RacingState implements GameState {
         this.sendRaceConfig(track.lapInfo.length);
         // Send initial position to guests
         this.sendInitialPosition();
+        // Send first snapshot immediately to ensure guests see host's car
+        this.sendImmediateSnapshot();
+
+        // Send again after a short delay to ensure it arrives
+        setTimeout(() => {
+          this.sendInitialPosition();
+          this.sendImmediateSnapshot();
+          console.log('[RacingState] Host sent delayed initial_position and snapshot for reliability');
+        }, 100);
       }
       // Guest will send initial position after receiving race_config
     }
@@ -672,6 +681,68 @@ export class RacingState implements GameState {
     }
   }
 
+  private sendImmediateSnapshot(): void {
+    if (!this.networkService || !this.playerController || !this.raceController) return;
+
+    const vehicle = this.playerController.getVehicle();
+    const lapState = this.raceController.getPlayerLapState('local');
+    const position = vehicle.rigidBody.translation();
+    const rotation = vehicle.rigidBody.rotation();
+    const velocity = vehicle.rigidBody.linvel();
+
+    // Build players array - start with host
+    const players = [{
+      id: this.playerId!,
+      name: this.roomInfo?.players.find(p => p.id === this.playerId)?.name ?? 'Host',
+      carColor: this.roomInfo?.players.find(p => p.id === this.playerId)?.carColor ?? 0xe10600,
+      position: [position.x, position.y, position.z] as [number, number, number],
+      rotation: [rotation.x, rotation.y, rotation.z, rotation.w] as [number, number, number, number],
+      velocity: [velocity.x, velocity.y, velocity.z] as [number, number, number],
+      speedKmh: vehicle.getSpeedKmh(),
+      gear: 1,
+      currentLap: lapState.currentLap,
+      lapTimeMs: lapState.currentLapTime * 1000,
+      lastLapMs: Number.isNaN(lapState.lastLapTime) ? null : lapState.lastLapTime * 1000,
+      bestLapMs: Number.isNaN(lapState.bestLapTime) ? null : lapState.bestLapTime * 1000,
+    }];
+
+    // Add guest vehicles if host
+    if (this.gameMode === 'multi_host' && this.guestVehicles) {
+      this.guestVehicles.forEach((guestData, guestId) => {
+        const guestVehicle = guestData.vehicle;
+        const guestPos = guestVehicle.rigidBody.translation();
+        const guestRot = guestVehicle.rigidBody.rotation();
+        const guestVel = guestVehicle.rigidBody.linvel();
+        const guestLapState = this.raceController!.getPlayerLapState(guestId);
+
+        players.push({
+          id: guestId,
+          name: this.roomInfo?.players.find(p => p.id === guestId)?.name ?? 'Guest',
+          carColor: this.roomInfo?.players.find(p => p.id === guestId)?.carColor ?? 0x0000ff,
+          position: [guestPos.x, guestPos.y, guestPos.z] as [number, number, number],
+          rotation: [guestRot.x, guestRot.y, guestRot.z, guestRot.w] as [number, number, number, number],
+          velocity: [guestVel.x, guestVel.y, guestVel.z] as [number, number, number],
+          speedKmh: guestVehicle.getSpeedKmh(),
+          gear: 1,
+          currentLap: guestLapState.currentLap,
+          lapTimeMs: guestLapState.currentLapTime * 1000,
+          lastLapMs: Number.isNaN(guestLapState.lastLapTime) ? null : guestLapState.lastLapTime * 1000,
+          bestLapMs: Number.isNaN(guestLapState.bestLapTime) ? null : guestLapState.bestLapTime * 1000,
+        });
+      });
+    }
+
+    const snapshot = {
+      type: 'snapshot' as const,
+      tick: 0,
+      timestamp: performance.now(),
+      players,
+    };
+
+    console.log('[RacingState] Sending immediate first snapshot:', snapshot);
+    this.networkService.broadcastToGuests(snapshot);
+  }
+
   private handleRaceConfig(config: any): void {
     console.log('[RacingState] Guest received race_config:', config);
     // Update local state with host's config
@@ -680,6 +751,12 @@ export class RacingState implements GameState {
 
     // Guest sends initial position to host after receiving race_config
     this.sendInitialPosition();
+
+    // Send again after a short delay to ensure it arrives
+    setTimeout(() => {
+      this.sendInitialPosition();
+      console.log('[RacingState] Guest sent delayed initial_position for reliability');
+    }, 100);
   }
 
   private handleHostInitialPosition(message: any): void {
