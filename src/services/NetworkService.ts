@@ -27,6 +27,8 @@ export class NetworkService implements Service {
   private pingSamples: number[] = [];
   private pingInterval: number | null = null;
   private readonly maxPingSamples = 10;
+  private hostMessageCounter = 0;
+  private guestMessageCounter = 0;
 
   constructor(config: NetworkServiceConfig) {
     this.config = config;
@@ -63,11 +65,39 @@ export class NetworkService implements Service {
         this.config.eventBus.emit('race:countdown-start', { seconds: countdown });
       },
 
-      onHostMessage: (_message) => {
+      onHostMessage: (message) => {
+        // Log every 50th snapshot to avoid spam
+        if (message.type === 'snapshot') {
+          if (!this.hostMessageCounter) this.hostMessageCounter = 0;
+          this.hostMessageCounter++;
+          if (this.hostMessageCounter % 50 === 0) {
+            console.log(`[NetworkService] CALLBACK onHostMessage: Received snapshot #${this.hostMessageCounter}`, {
+              tick: message.tick,
+              playerCount: message.players.length
+            });
+          }
+        } else {
+          console.log(`[NetworkService] CALLBACK onHostMessage: ${message.type}`);
+        }
         // Host messages are handled by game controllers
       },
 
-      onGuestMessage: (_guestId, _message) => {
+      onGuestMessage: (guestId, message) => {
+        // Log every 50th input to avoid spam
+        if (message.type === 'input') {
+          if (!this.guestMessageCounter) this.guestMessageCounter = 0;
+          this.guestMessageCounter++;
+          if (this.guestMessageCounter % 50 === 0) {
+            console.log(`[NetworkService] CALLBACK onGuestMessage: Received input #${this.guestMessageCounter} from ${guestId}`, {
+              seq: message.seq,
+              throttle: message.throttle,
+              steering: message.steer,
+              brake: message.brake
+            });
+          }
+        } else {
+          console.log(`[NetworkService] CALLBACK onGuestMessage: ${message.type} from ${guestId}`);
+        }
         // Guest messages are handled by game controllers
       },
 

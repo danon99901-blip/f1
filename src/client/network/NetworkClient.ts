@@ -160,15 +160,15 @@ export class NetworkClient {
     });
 
     // Log snapshot broadcasts (most frequent)
-    if (message.type === 'host_snapshot') {
+    if (message.type === 'snapshot') {
       // Log every 50th snapshot to avoid spam
       if (!this.snapshotCounter) this.snapshotCounter = 0;
       this.snapshotCounter++;
       if (this.snapshotCounter % 50 === 0) {
         console.log(`[Network] HOST BROADCAST: Sent ${sentCount} snapshots (${closedCount} channels closed). Sample data:`, {
-          hostPos: message.snapshot.host.position,
-          hostVel: message.snapshot.host.velocity,
-          guestCount: Object.keys(message.snapshot.guests).length
+          tick: message.tick,
+          playerCount: message.players.length,
+          timestamp: message.timestamp
         });
       }
     } else {
@@ -199,16 +199,17 @@ export class NetworkClient {
     }
 
     // Log input sends (most frequent)
-    if (message.type === 'guest_input') {
+    if (message.type === 'input') {
       // Log every 50th input to avoid spam
       if (!this.inputCounter) this.inputCounter = 0;
       this.inputCounter++;
       if (this.inputCounter % 50 === 0) {
         console.log(`[Network] GUEST SEND (before): Sending input #${this.inputCounter} to host. Channel state: ${hostChannel.readyState}. Data:`, {
-          throttle: message.input.throttle.toFixed(3),
-          steering: message.input.steering.toFixed(3),
-          brake: message.input.brake.toFixed(3),
-          timestamp: message.input.timestamp
+          seq: message.seq,
+          throttle: message.throttle.toFixed(3),
+          steering: message.steer.toFixed(3),
+          brake: message.brake.toFixed(3),
+          timestamp: message.timestamp
         });
       }
     } else {
@@ -391,14 +392,16 @@ export class NetworkClient {
           const clientMsg = message as ClientMessage;
 
           // Log received inputs (most frequent)
-          if (clientMsg.type === 'guest_input') {
+          if (clientMsg.type === 'input') {
             if (!this.receivedInputCounter) this.receivedInputCounter = 0;
             this.receivedInputCounter++;
             if (this.receivedInputCounter % 50 === 0) {
-              console.log(`[Network] HOST RECEIVED: Input from ${peerId}. Sample data:`, {
-                throttle: clientMsg.input.throttle,
-                steering: clientMsg.input.steering,
-                brake: clientMsg.input.brake
+              console.log(`[Network] HOST RECEIVED: Input #${this.receivedInputCounter} from ${peerId}. Sample data:`, {
+                seq: clientMsg.seq,
+                throttle: clientMsg.throttle,
+                steering: clientMsg.steer,
+                brake: clientMsg.brake,
+                timestamp: clientMsg.timestamp
               });
             }
           } else {
@@ -411,14 +414,14 @@ export class NetworkClient {
           const hostMsg = message as HostMessage;
 
           // Log received snapshots (most frequent)
-          if (hostMsg.type === 'host_snapshot') {
+          if (hostMsg.type === 'snapshot') {
             if (!this.receivedSnapshotCounter) this.receivedSnapshotCounter = 0;
             this.receivedSnapshotCounter++;
             if (this.receivedSnapshotCounter % 50 === 0) {
-              console.log(`[Network] GUEST RECEIVED: Snapshot from host. Sample data:`, {
-                hostPos: hostMsg.snapshot.host.position,
-                hostVel: hostMsg.snapshot.host.velocity,
-                guestCount: Object.keys(hostMsg.snapshot.guests).length
+              console.log(`[Network] GUEST RECEIVED: Snapshot #${this.receivedSnapshotCounter} from host. Sample data:`, {
+                tick: hostMsg.tick,
+                playerCount: hostMsg.players.length,
+                timestamp: hostMsg.timestamp
               });
             }
           } else {
