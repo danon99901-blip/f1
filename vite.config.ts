@@ -8,6 +8,15 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'three': ['three'],
+          'rapier': ['@dimforge/rapier3d-compat'],
+          'postprocessing': ['postprocessing'],
+        },
+      },
+    },
   },
   optimizeDeps: {
     exclude: ['@dimforge/rapier3d-compat'],

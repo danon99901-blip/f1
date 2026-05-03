@@ -2,14 +2,15 @@
 
 import * as THREE from 'three';
 import { createScene } from '../scene';
-import { createComposer } from '../effects/composer';
+import { loadComposer } from '../effects/composerLoader';
+import type { ComposerBundle } from '../effects/composer';
 import type { Service } from '../core/ServiceContainer';
 
 export class RenderService implements Service {
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
-  private composer: ReturnType<typeof createComposer> | null = null;
+  private composer: ComposerBundle | null = null;
   private container: HTMLElement | null = null;
   private resizeHandler: (() => void) | null = null;
 
@@ -31,8 +32,15 @@ export class RenderService implements Service {
       zIndex: window.getComputedStyle(this.renderer.domElement).zIndex,
     });
 
-    // Temporarily disable composer to avoid WebGL errors
-    // this.composer = createComposer(this.renderer, this.scene, this.camera);
+    // Lazy load composer (non-blocking)
+    void loadComposer(this.renderer, this.scene, this.camera)
+      .then((composer) => {
+        this.composer = composer;
+        console.log('[RenderService] Post-processing loaded');
+      })
+      .catch((err) => {
+        console.error('[RenderService] Failed to load composer:', err);
+      });
 
     // Handle window resize
     this.resizeHandler = () => this.handleResize();
