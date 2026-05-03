@@ -114,6 +114,16 @@ export class OpponentController {
     }
   }
 
+  setInitialPosition(id: string, position: THREE.Vector3, rotation: THREE.Quaternion): void {
+    const opponent = this.remoteOpponents.get(id);
+    if (opponent) {
+      opponent.mesh.position.copy(position);
+      opponent.mesh.quaternion.copy(rotation);
+      opponent.nameTag.updatePosition(position);
+      console.log(`[OpponentController] Set initial position for ${id}:`, position);
+    }
+  }
+
   updateRemoteVisuals(currentTime: number): THREE.Group | null {
     let localPlayerMesh: THREE.Group | null = null;
 
