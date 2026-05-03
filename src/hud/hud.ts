@@ -188,13 +188,13 @@ export function createHud(): Hud {
     // Network stats (multiplayer only)
     if (state.networkStats) {
       netPanel.style.display = '';
-      const { ping, jitter, state: netState, reconnectAttempt } = state.networkStats;
+      const { ping, jitter, state: netState, reconnectAttempt: attemptNum } = state.networkStats;
 
       // Show reconnection overlay if reconnecting
       if (netState === 'reconnecting') {
         reconnectOverlay.style.display = 'flex';
-        if (reconnectAttempt !== undefined) {
-          reconnectAttempt.textContent = `Attempt ${reconnectAttempt}/5`;
+        if (attemptNum !== undefined) {
+          reconnectAttempt.textContent = `Attempt ${attemptNum}/5`;
         }
       } else {
         reconnectOverlay.style.display = 'none';

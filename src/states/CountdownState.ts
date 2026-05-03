@@ -10,7 +10,7 @@ export class CountdownState implements GameState {
 
   async enter(context: StateContext): Promise<void> {
     this.context = context;
-    const countdownSeconds = context.data?.countdownSeconds ?? 3;
+    const countdownSeconds = context.data?.countdownSeconds ?? 5;
 
     this.countdown = new CountdownOverlay();
     this.countdown.show(countdownSeconds, () => {

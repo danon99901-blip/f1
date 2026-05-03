@@ -115,7 +115,7 @@ describe('GameStateMachine', () => {
     expect((receivedContext!.data as any).totalLaps).toBe(10);
   });
 
-  it('should prevent concurrent transitions', async () => {
+  it('should queue concurrent transitions', async () => {
     const slowState: GameState = {
       name: 'menu',
       enter: () => new Promise((resolve) => setTimeout(resolve, 100)),
@@ -130,10 +130,14 @@ describe('GameStateMachine', () => {
     // Wait a bit to ensure first transition has started
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await expect(stateMachine.transitionTo('menu')).rejects.toThrow('Cannot transition while another transition is in progress');
+    // Second transition should be queued and complete successfully
+    const transition2 = stateMachine.transitionTo('menu');
 
-    // Wait for first transition to complete
+    // Both transitions should complete
     await transition1;
+    await transition2;
+
+    expect(stateMachine.getCurrentStateName()).toBe('menu');
   });
 
   it('should update current state', async () => {

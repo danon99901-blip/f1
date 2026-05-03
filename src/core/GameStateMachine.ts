@@ -21,7 +21,12 @@ export class GameStateMachine {
   private states = new Map<GameStateName, GameState>();
   private context: StateContext;
   private transitioning = false;
-  private transitionQueue: Array<{ name: GameStateName; data?: Record<string, any> }> = [];
+  private transitionQueue: Array<{
+    name: GameStateName;
+    data?: Record<string, any>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }> = [];
 
   constructor(eventBus: EventBus) {
     this.context = { eventBus, data: {} };
@@ -40,8 +45,9 @@ export class GameStateMachine {
     // If already transitioning, queue this transition
     if (this.transitioning) {
       console.log('[GameStateMachine] Already transitioning, queueing:', name);
-      this.transitionQueue.push({ name, data });
-      return;
+      return new Promise<void>((resolve, reject) => {
+        this.transitionQueue.push({ name, data, resolve, reject });
+      });
     }
 
     const nextState = this.states.get(name);
@@ -110,6 +116,10 @@ export class GameStateMachine {
 
   clearQueue(): void {
     console.log('[GameStateMachine] Clearing transition queue');
+    // Reject all pending transitions
+    this.transitionQueue.forEach((item) => {
+      item.reject(new Error('Transition queue cleared'));
+    });
     this.transitionQueue = [];
   }
 
@@ -120,10 +130,13 @@ export class GameStateMachine {
         console.log('[GameStateMachine] Processing queued transition:', next.name);
         // Schedule on next tick to avoid deep recursion
         setTimeout(() => {
-          this.transitionTo(next.name, next.data).catch((error) => {
-            console.error('[GameStateMachine] Queued transition failed:', error);
-            this.clearQueue();
-          });
+          this.transitionTo(next.name, next.data)
+            .then(() => next.resolve())
+            .catch((error) => {
+              console.error('[GameStateMachine] Queued transition failed:', error);
+              next.reject(error);
+              this.clearQueue();
+            });
         }, 0);
       }
     }

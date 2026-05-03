@@ -23,7 +23,7 @@ export interface PlayerState {
 export interface RoomInfo {
   roomId: string;
   hostId: string;
-  players: { id: string; name: string; isHost: boolean }[];
+  players: { id: string; name: string; isHost: boolean; carColor: number }[];
   totalLaps: number;
   state: 'lobby' | 'countdown' | 'racing' | 'finished';
 }
