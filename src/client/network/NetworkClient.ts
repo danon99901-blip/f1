@@ -180,29 +180,51 @@ export class NetworkClient {
 
   // Guest sends message to host
   sendToHost(message: ClientMessage): void {
-    if (this.mode !== 'guest') return;
+    if (this.mode !== 'guest') {
+      console.warn(`[Network] GUEST SEND BLOCKED: Not in guest mode (current mode: ${this.mode})`);
+      return;
+    }
 
     const hostChannel = Array.from(this.dataChannels.values())[0];
-    if (hostChannel && hostChannel.readyState === 'open') {
-      hostChannel.send(JSON.stringify(message));
 
-      // Log input sends (most frequent)
-      if (message.type === 'guest_input') {
-        // Log every 50th input to avoid spam
-        if (!this.inputCounter) this.inputCounter = 0;
-        this.inputCounter++;
-        if (this.inputCounter % 50 === 0) {
-          console.log(`[Network] GUEST SEND: Sent input to host. Sample data:`, {
-            throttle: message.input.throttle,
-            steering: message.input.steering,
-            brake: message.input.brake
-          });
-        }
-      } else {
-        console.log(`[Network] GUEST SEND: ${message.type} to host`);
+    // Log channel state BEFORE attempting to send
+    if (!hostChannel) {
+      console.error(`[Network] GUEST SEND FAILED: No data channel exists. Total channels: ${this.dataChannels.size}`);
+      return;
+    }
+
+    if (hostChannel.readyState !== 'open') {
+      console.warn(`[Network] GUEST SEND FAILED: Channel state is "${hostChannel.readyState}" (not "open")`);
+      return;
+    }
+
+    // Log input sends (most frequent)
+    if (message.type === 'guest_input') {
+      // Log every 50th input to avoid spam
+      if (!this.inputCounter) this.inputCounter = 0;
+      this.inputCounter++;
+      if (this.inputCounter % 50 === 0) {
+        console.log(`[Network] GUEST SEND (before): Sending input #${this.inputCounter} to host. Channel state: ${hostChannel.readyState}. Data:`, {
+          throttle: message.input.throttle.toFixed(3),
+          steering: message.input.steering.toFixed(3),
+          brake: message.input.brake.toFixed(3),
+          timestamp: message.input.timestamp
+        });
       }
     } else {
-      console.warn(`[Network] GUEST SEND FAILED: Cannot send to host, channel state: ${hostChannel?.readyState || 'no channel'}`);
+      console.log(`[Network] GUEST SEND (before): Sending ${message.type} to host. Channel state: ${hostChannel.readyState}`);
+    }
+
+    // Actually send the message
+    try {
+      hostChannel.send(JSON.stringify(message));
+
+      // Confirm successful send for non-input messages
+      if (message.type !== 'guest_input') {
+        console.log(`[Network] GUEST SEND (after): Successfully sent ${message.type}`);
+      }
+    } catch (error) {
+      console.error(`[Network] GUEST SEND ERROR: Failed to send ${message.type}:`, error);
     }
   }
 
