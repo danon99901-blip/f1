@@ -58,6 +58,10 @@ export class PhysicsService implements Service {
   destroyVehicle(id: string): void {
     const vehicle = this.vehicles.get(id);
     if (vehicle) {
+      // Dispose vehicle resources first
+      if (vehicle.dispose) {
+        vehicle.dispose();
+      }
       // Remove from physics world
       if (this.world) {
         this.world.removeRigidBody(vehicle.rigidBody);
@@ -83,6 +87,10 @@ export class PhysicsService implements Service {
   dispose(): void {
     // Properly clean up all vehicles and their physics bodies
     this.vehicles.forEach((vehicle) => {
+      // Dispose vehicle resources first
+      if (vehicle.dispose) {
+        vehicle.dispose();
+      }
       if (this.world) {
         // Remove rigid body (this also removes attached colliders)
         this.world.removeRigidBody(vehicle.rigidBody);

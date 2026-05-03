@@ -63,6 +63,7 @@ export class RacingState implements GameState {
 
   // Track Three.js objects for cleanup
   private trackMesh: THREE.Group | null = null;
+  private track: ReturnType<typeof createTrack> | null = null;
   private groundMesh: THREE.Mesh | null = null;
   private groundGrid: THREE.GridHelper | null = null;
   private vehicleMeshes: THREE.Object3D[] = [];
@@ -104,6 +105,7 @@ export class RacingState implements GameState {
 
     console.log('[RacingState] Creating track...');
     const track = createTrack(this.physicsService!.getWorld(), scene);
+    this.track = track;
     this.trackMesh = track.mesh;
     const spawn = track.lapInfo.spawn;
     const yawSpawn = Math.atan2(-spawn.forward.x, -spawn.forward.z);
@@ -367,6 +369,12 @@ export class RacingState implements GameState {
     // Clean up Three.js scene objects to prevent memory leak
     if (this.renderService) {
       const scene = this.renderService.getScene();
+
+      // Dispose track Rapier resources (colliders for track, barriers, checkpoints)
+      if (this.track) {
+        this.track.dispose();
+        this.track = null;
+      }
 
       // Remove track mesh (includes asphalt, kerbs, barriers, start/finish)
       if (this.trackMesh) {

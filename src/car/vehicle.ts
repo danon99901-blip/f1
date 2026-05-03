@@ -125,6 +125,8 @@ export interface Vehicle {
   getForwardSpeedKmh(): number;
   /** Snapshot of the most recent update()'s control + contact state. */
   getDebug(): VehicleDebug;
+  /** Clean up Rapier resources to prevent memory leaks. */
+  dispose(): void;
 }
 
 function buildChassisMesh(color: number = 0xe10600): THREE.Group {
@@ -677,6 +679,14 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     return -controller.currentVehicleSpeed() * 3.6;
   }
 
+  function dispose(): void {
+    // Note: Rapier's high-level API (World, RigidBody, Collider) does not
+    // expose .free() methods. Memory is managed by the World and released
+    // when removeRigidBody/removeCollider is called, or when world.free()
+    // is called. The controller is tied to the rigid body lifecycle.
+    // This method exists for future cleanup if needed.
+  }
+
   return {
     rigidBody,
     controller,
@@ -687,5 +697,6 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     getSpeedKmh,
     getForwardSpeedKmh,
     getDebug: () => dbg,
+    dispose,
   };
 }

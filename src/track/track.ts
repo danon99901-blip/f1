@@ -53,6 +53,8 @@ export interface Track {
   /** Normalised progress along the centerline in [0, 1). */
   getProgress: (pos: THREE.Vector3 | RAPIER.Vector) => number;
   lapInfo: LapInfo;
+  /** Clean up Rapier resources to prevent memory leaks. */
+  dispose: () => void;
 }
 
 const SURFACE_Y = 0.02;
@@ -664,6 +666,22 @@ export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
     spawn: { position: spawnPos, forward: first.tangent.clone() },
   };
 
+  const dispose = (): void => {
+    // Note: Rapier's high-level API does not expose .free() on individual
+    // Colliders. Memory is managed by the World and released when
+    // world.removeCollider() is called, or when world.free() is called.
+    // We remove colliders from the world here to ensure proper cleanup.
+    world.removeCollider(collider, false);
+
+    checkpoints.forEach((cp) => {
+      world.removeCollider(cp.collider, false);
+    });
+
+    barriers.colliders.forEach((barrierCollider) => {
+      world.removeCollider(barrierCollider, false);
+    });
+  };
+
   return {
     mesh: group,
     collider,
@@ -671,5 +689,6 @@ export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
     isOnTrack,
     getProgress,
     lapInfo,
+    dispose,
   };
 }
