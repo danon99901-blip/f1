@@ -12,6 +12,7 @@ import type {
 interface Player {
   id: string;
   name: string;
+  carColor: number;
   ws: WebSocket;
   roomId: string | null;
 }
@@ -90,6 +91,7 @@ export class SignalingServer {
       const player: Player = {
         id: playerId,
         name: '',
+        carColor: 0xe10600, // Default Ferrari red
         ws,
         roomId: null,
       };
@@ -130,6 +132,9 @@ export class SignalingServer {
       case 'start_race':
         this.handleStartRace(player);
         break;
+      case 'update_color':
+        this.handleUpdateColor(player, message);
+        break;
       case 'signaling_offer':
       case 'signaling_answer':
       case 'signaling_ice':
@@ -163,7 +168,7 @@ export class SignalingServer {
       type: 'room_joined',
       roomId,
       playerId: player.id,
-      players: [{ id: player.id, name: player.name, isHost: true }],
+      players: [{ id: player.id, name: player.name, isHost: true, carColor: player.carColor }],
       totalLaps: room.totalLaps,
     });
 
@@ -210,6 +215,7 @@ export class SignalingServer {
         id: p.id,
         name: p.name,
         isHost: p.id === room.hostId,
+        carColor: p.carColor,
       })),
       totalLaps: room.totalLaps,
     });
@@ -221,6 +227,7 @@ export class SignalingServer {
         type: 'player_joined',
         playerId: player.id,
         playerName: player.name,
+        carColor: player.carColor,
       },
       player.id,
     );
@@ -282,10 +289,33 @@ export class SignalingServer {
     // Broadcast race start to all players
     this.broadcast(room, {
       type: 'race_start',
-      countdown: 3,
+      countdown: 5,
     });
 
     console.log(`[Signaling] Race started in room ${room.id}`);
+  }
+
+  private handleUpdateColor(player: Player, message: { type: 'update_color'; color: number }): void {
+    if (!player.roomId) return;
+
+    const room = this.rooms.get(player.roomId);
+    if (!room) return;
+
+    // Update player's color
+    player.carColor = message.color;
+
+    // Broadcast color change to all other players in the room
+    this.broadcast(
+      room,
+      {
+        type: 'player_color_changed',
+        playerId: player.id,
+        color: message.color,
+      },
+      player.id,
+    );
+
+    console.log(`[Signaling] Player ${player.name} changed color to ${message.color.toString(16)}`);
   }
 
   private handleSignaling(
