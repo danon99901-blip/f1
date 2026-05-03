@@ -66,6 +66,14 @@ export class ServiceContainer {
     return this.factories.has(name) || this.services.has(name);
   }
 
+  get<T extends Service>(name: string): T {
+    const service = this.services.get(name);
+    if (!service) {
+      throw new Error(`Service ${name} is not initialized. Call resolve() first.`);
+    }
+    return service as T;
+  }
+
   async disposeAll(): Promise<void> {
     const disposePromises: Promise<void>[] = [];
 

@@ -386,4 +386,26 @@ export class NetworkClient {
   isHost(): boolean {
     return this.mode === 'host';
   }
+
+  async getConnectionStats(): Promise<{ roundTripTime?: number } | null> {
+    // Get stats from the first peer connection (if any)
+    const firstPeer = Array.from(this.peerConnections.values())[0];
+    if (!firstPeer) return null;
+
+    try {
+      const stats = await firstPeer.getStats();
+      let rtt: number | undefined;
+
+      stats.forEach((report) => {
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          rtt = report.currentRoundTripTime;
+        }
+      });
+
+      return { roundTripTime: rtt };
+    } catch (error) {
+      console.error('[Network] Failed to get stats:', error);
+      return null;
+    }
+  }
 }

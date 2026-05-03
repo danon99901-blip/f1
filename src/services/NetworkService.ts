@@ -23,6 +23,11 @@ export class NetworkService implements Service {
   private isReconnecting = false;
   private isDisposed = false;
 
+  // Network stats tracking
+  private pingSamples: number[] = [];
+  private pingInterval: number | null = null;
+  private readonly maxPingSamples = 10;
+
   constructor(config: NetworkServiceConfig) {
     this.config = config;
   }
@@ -79,6 +84,7 @@ export class NetworkService implements Service {
 
     try {
       await this.client.connect();
+      this.startPingMonitoring();
     } catch (error) {
       this.config.eventBus.emit('error:network', {
         message: error instanceof Error ? error.message : 'Connection failed',
@@ -93,6 +99,11 @@ export class NetworkService implements Service {
       this.reconnectTimer = null;
     }
 
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+
     this.isReconnecting = false;
 
     if (this.client) {
@@ -101,6 +112,7 @@ export class NetworkService implements Service {
     }
 
     this.reconnectAttempts = 0;
+    this.pingSamples = [];
   }
 
   createRoom(playerName: string, totalLaps: number): void {
@@ -197,5 +209,54 @@ export class NetworkService implements Service {
   dispose(): void {
     this.isDisposed = true;
     this.disconnect();
+  }
+
+  private startPingMonitoring(): void {
+    this.pingInterval = window.setInterval(() => {
+      this.measurePing();
+    }, 5000);
+  }
+
+  private measurePing(): void {
+    if (!this.client) return;
+
+    // Send a ping message through the data channel
+    // In a real implementation, you'd send a ping message and wait for pong
+    // For now, we'll estimate based on WebRTC stats
+    this.estimatePingFromStats();
+  }
+
+  private async estimatePingFromStats(): Promise<void> {
+    if (!this.client) return;
+
+    try {
+      const stats = await this.client.getConnectionStats();
+      if (stats && stats.roundTripTime !== undefined) {
+        const ping = stats.roundTripTime * 1000; // Convert to ms
+        this.pingSamples.push(ping);
+        if (this.pingSamples.length > this.maxPingSamples) {
+          this.pingSamples.shift();
+        }
+      }
+    } catch (error) {
+      // Stats not available, ignore
+    }
+  }
+
+  getNetworkStats(): { ping: number; jitter: number } | null {
+    if (this.pingSamples.length === 0) return null;
+
+    const avgPing = this.pingSamples.reduce((a, b) => a + b, 0) / this.pingSamples.length;
+
+    // Calculate jitter (variance in ping)
+    const jitter = this.pingSamples.length > 1
+      ? Math.sqrt(
+          this.pingSamples
+            .map(p => Math.pow(p - avgPing, 2))
+            .reduce((a, b) => a + b, 0) / this.pingSamples.length
+        )
+      : 0;
+
+    return { ping: avgPing, jitter };
   }
 }

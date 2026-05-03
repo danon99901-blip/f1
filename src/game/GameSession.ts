@@ -103,6 +103,18 @@ export class GameSession {
     return this.stateMachine;
   }
 
+  getGameLoop(): GameLoop {
+    return this.gameLoop;
+  }
+
+  getNetworkService(): NetworkService | null {
+    try {
+      return this.serviceContainer.get<NetworkService>('network');
+    } catch {
+      return null;
+    }
+  }
+
   pauseGame(): void {
     this.gameLoop.pause();
   }

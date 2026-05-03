@@ -1,6 +1,7 @@
 // Unified game loop abstraction
 
 export type GameLoopCallback = (dt: number) => void;
+export type PhysicsTimeCallback = (time: number) => void;
 
 export class GameLoop {
   private running = false;
@@ -9,9 +10,14 @@ export class GameLoop {
   private animationFrameId: number | null = null;
   private callback: GameLoopCallback;
   private timeScale = 1.0;
+  private physicsTimeCallback?: PhysicsTimeCallback;
 
   constructor(callback: GameLoopCallback) {
     this.callback = callback;
+  }
+
+  setPhysicsTimeCallback(callback: PhysicsTimeCallback): void {
+    this.physicsTimeCallback = callback;
   }
 
   start(): void {
@@ -72,7 +78,13 @@ export class GameLoop {
 
     if (!this.paused && dt > 0) {
       try {
+        const callbackStart = performance.now();
         this.callback(dt);
+        const callbackEnd = performance.now();
+
+        if (this.physicsTimeCallback) {
+          this.physicsTimeCallback(callbackEnd - callbackStart);
+        }
       } catch (error) {
         console.error('[GameLoop] Error in callback:', error);
       }

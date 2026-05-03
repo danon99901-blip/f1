@@ -136,7 +136,7 @@ describe('GameStateMachine', () => {
     await transition1;
   });
 
-  it('should update current state', () => {
+  it('should update current state', async () => {
     const mockState: GameState = {
       name: 'racing',
       enter: vi.fn(),
@@ -145,13 +145,10 @@ describe('GameStateMachine', () => {
     };
 
     stateMachine.registerState('racing', mockState);
-    stateMachine.transitionTo('racing');
+    await stateMachine.transitionTo('racing');
 
-    // Wait for transition to complete
-    setTimeout(() => {
-      stateMachine.update(0.016);
-      expect(mockState.update).toHaveBeenCalledWith(0.016);
-    }, 10);
+    stateMachine.update(0.016);
+    expect(mockState.update).toHaveBeenCalledWith(0.016);
   });
 
   it('should dispose and clean up', async () => {

@@ -3,11 +3,19 @@
 import { GameSession } from './game/GameSession';
 import { UIManager } from './ui/UIManager';
 import { loadingManager } from './utils/LoadingManager';
+import { PerformanceMonitor } from './debug/PerformanceMonitor';
+import { PerformanceOverlay } from './debug/PerformanceOverlay';
 import './hud/styles.css';
 import './client/menu/menu.css';
 
 const SIGNALING_URL =
   (import.meta as any).env?.VITE_SIGNALING_URL || 'ws://localhost:3001';
+
+// Check if debug mode is enabled
+function isDebugMode(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('debug') === '1';
+}
 
 // Setup loading UI updates
 function setupLoadingUI() {
@@ -116,9 +124,91 @@ async function main() {
 
   console.log('[Main] Game started successfully!');
 
+  // Setup performance monitor if debug mode is enabled
+  let perfMonitor: PerformanceMonitor | null = null;
+  let perfOverlay: PerformanceOverlay | null = null;
+
+  if (isDebugMode()) {
+    perfMonitor = new PerformanceMonitor();
+    perfOverlay = new PerformanceOverlay();
+    perfOverlay.show();
+
+    // Integrate with game loop
+    const gameLoop = gameSession.getGameLoop();
+    if (gameLoop) {
+      gameLoop.setPhysicsTimeCallback((time) => {
+        perfMonitor?.recordPhysicsTime(time);
+      });
+    }
+
+    // Update performance overlay every frame
+    const updatePerf = () => {
+      if (perfMonitor && perfOverlay) {
+        perfMonitor.update();
+
+        // Get network stats if available
+        const networkService = gameSession.getNetworkService();
+        if (networkService) {
+          const netStats = networkService.getNetworkStats();
+          if (netStats) {
+            perfMonitor.updateNetworkStats(netStats.ping, netStats.jitter);
+          }
+        }
+
+        perfOverlay.update(perfMonitor.getMetrics());
+      }
+      requestAnimationFrame(updatePerf);
+    };
+    updatePerf();
+
+    console.log('[Main] Performance monitor enabled (debug mode)');
+  }
+
+  // F3 toggle for performance overlay
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F3') {
+      e.preventDefault();
+
+      if (!perfMonitor || !perfOverlay) {
+        // Initialize if not already
+        perfMonitor = new PerformanceMonitor();
+        perfOverlay = new PerformanceOverlay();
+
+        const gameLoop = gameSession.getGameLoop();
+        if (gameLoop) {
+          gameLoop.setPhysicsTimeCallback((time) => {
+            perfMonitor?.recordPhysicsTime(time);
+          });
+        }
+
+        const updatePerf = () => {
+          if (perfMonitor && perfOverlay && perfOverlay.isVisible()) {
+            perfMonitor.update();
+
+            const networkService = gameSession.getNetworkService();
+            if (networkService) {
+              const netStats = networkService.getNetworkStats();
+              if (netStats) {
+                perfMonitor.updateNetworkStats(netStats.ping, netStats.jitter);
+              }
+            }
+
+            perfOverlay.update(perfMonitor.getMetrics());
+          }
+          requestAnimationFrame(updatePerf);
+        };
+        updatePerf();
+      }
+
+      perfOverlay.toggle();
+      console.log('[Main] Performance overlay toggled');
+    }
+  });
+
   // Expose for debugging
   (window as any).gameSession = gameSession;
   (window as any).uiManager = uiManager;
+  (window as any).perfMonitor = perfMonitor;
 }
 
 main().catch((err) => {
