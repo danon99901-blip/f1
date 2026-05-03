@@ -74,8 +74,8 @@ export function createCenterline(): THREE.CatmullRomCurve3 {
   return curve;
 }
 
-/** Half-width of the racing surface in metres (full width ~14 m). */
-export const TRACK_HALF_WIDTH = 7.0;
+/** Half-width of the racing surface in metres (full width ~18 m). */
+export const TRACK_HALF_WIDTH = 9.0;
 
 /** Width of each kerb strip in metres. */
 export const KERB_WIDTH = 2.0;

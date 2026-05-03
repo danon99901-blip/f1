@@ -1,0 +1,450 @@
+/* F1-style minimalist menu system */
+
+:root {
+  --menu-bg: rgba(10, 10, 12, 0.92);
+  --menu-panel-bg: rgba(10, 10, 12, 0.55);
+  --menu-border: rgba(255, 255, 255, 0.08);
+  --f1-red: #e10600;
+  --f1-red-hover: #ff1a0f;
+  --text-primary: #f5f5f5;
+  --text-secondary: rgba(255, 255, 255, 0.55);
+}
+
+.menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--menu-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-primary);
+  animation: menuFadeIn 0.3s ease-out;
+}
+
+@keyframes menuFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.menu-overlay.hidden {
+  display: none;
+}
+
+.menu-container {
+  max-width: 600px;
+  width: 90%;
+  animation: menuSlideIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes menuSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-title {
+  font-size: 4rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-align: center;
+  margin-bottom: 3rem;
+  text-shadow: 0 0 24px rgba(225, 6, 0, 0.4);
+  color: var(--f1-red);
+}
+
+.menu-panel {
+  background: var(--menu-panel-bg);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid var(--menu-border);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 2rem;
+  clip-path: polygon(
+    18px 0,
+    100% 0,
+    100% calc(100% - 18px),
+    calc(100% - 18px) 100%,
+    0 100%,
+    0 18px
+  );
+}
+
+.menu-button {
+  width: 100%;
+  padding: 1.2rem 2rem;
+  margin-bottom: 1rem;
+  background: transparent;
+  border: 2px solid var(--menu-border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  clip-path: polygon(
+    12px 0,
+    100% 0,
+    100% calc(100% - 12px),
+    calc(100% - 12px) 100%,
+    0 100%,
+    0 12px
+  );
+}
+
+.menu-button:hover {
+  border-color: var(--f1-red);
+  background: rgba(225, 6, 0, 0.1);
+  transform: translateX(4px);
+  box-shadow: 0 0 20px rgba(225, 6, 0, 0.3);
+}
+
+.menu-button:active {
+  transform: translateX(2px);
+}
+
+.menu-button.primary {
+  background: var(--f1-red);
+  border-color: var(--f1-red);
+  color: #fff;
+}
+
+.menu-button.primary:hover {
+  background: var(--f1-red-hover);
+  border-color: var(--f1-red-hover);
+}
+
+.menu-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.menu-input {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--menu-border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.menu-input:focus {
+  border-color: var(--f1-red);
+  box-shadow: 0 0 12px rgba(225, 6, 0, 0.2);
+}
+
+.menu-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.menu-label {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.menu-section {
+  margin-bottom: 2rem;
+}
+
+.menu-section:last-child {
+  margin-bottom: 0;
+}
+
+/* Lobby specific styles */
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--menu-border);
+}
+
+.lobby-room-code {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--f1-red);
+}
+
+.lobby-copy-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--menu-border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lobby-copy-btn:hover {
+  border-color: var(--f1-red);
+  color: var(--f1-red);
+}
+
+.lobby-players {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--menu-border);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.lobby-player {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lobby-player:last-child {
+  border-bottom: none;
+}
+
+.lobby-player-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--f1-red);
+  flex-shrink: 0;
+}
+
+.lobby-player-name {
+  flex: 1;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+}
+
+.lobby-player-badge {
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.lobby-settings {
+  margin-bottom: 2rem;
+}
+
+.lobby-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.lobby-setting-label {
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.lobby-setting-value {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--f1-red);
+}
+
+.lobby-lap-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lobby-lap-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--menu-border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lobby-lap-btn:hover {
+  border-color: var(--f1-red);
+}
+
+.lobby-lap-btn.active {
+  background: var(--f1-red);
+  border-color: var(--f1-red);
+  color: #fff;
+}
+
+.menu-button-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.menu-button-row .menu-button {
+  margin-bottom: 0;
+}
+
+.menu-error {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: rgba(225, 6, 0, 0.15);
+  border: 1px solid var(--f1-red);
+  color: var(--f1-red);
+  font-size: 0.9rem;
+  text-align: center;
+  animation: errorShake 0.4s ease;
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+
+/* Scrollbar styling */
+.lobby-players::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lobby-players::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.lobby-players::-webkit-scrollbar-thumb {
+  background: var(--menu-border);
+  border-radius: 3px;
+}
+
+.lobby-players::-webkit-scrollbar-thumb:hover {
+  background: var(--f1-red);
+}
+
+/* Responsive */
+@media (max-width: 720px) {
+  .menu-title {
+    font-size: 2.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .menu-panel {
+    padding: 1.5rem;
+  }
+
+  .menu-button {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+  }
+
+  .lobby-room-code {
+    font-size: 1.5rem;
+  }
+}
+
+/* Countdown overlay */
+.countdown-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.countdown-overlay.hidden {
+  display: none;
+}
+
+.countdown-container {
+  text-align: center;
+}
+
+.countdown-number {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12rem;
+  font-weight: 900;
+  color: var(--f1-red);
+  text-shadow:
+    0 0 40px rgba(225, 6, 0, 0.8),
+    0 0 80px rgba(225, 6, 0, 0.4);
+  line-height: 1;
+}
+
+.countdown-pulse {
+  animation: countdownPulse 1s ease-out;
+}
+
+.countdown-go {
+  animation: countdownGo 0.8s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes countdownPulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes countdownGo {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    color: #00ff00;
+    text-shadow:
+      0 0 60px rgba(0, 255, 0, 0.8),
+      0 0 120px rgba(0, 255, 0, 0.4);
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .countdown-number {
+    font-size: 8rem;
+  }
+}

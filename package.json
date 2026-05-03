@@ -5,17 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "tsc -b && vite build",
+    "build:server": "tsc -p tsconfig.server.json",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "start:server": "node dist/server/index.js"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",
     "postprocessing": "^6.36.0",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/three": "^0.170.0",
+    "@types/ws": "^8.5.12",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.7.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }

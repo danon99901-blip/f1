@@ -2,18 +2,34 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { RAPIER as RAPIER_NS } from '../physics';
 import { createCarModel } from '../car/vehicle';
-import { createCenterline } from '../track/circuit';
+import { buildRacingLine } from './racingLine';
+import { expDecayBlend, tangentToYaw } from '../utils/math';
 
 interface Opponent {
   mesh: THREE.Group;
   body: RAPIER.RigidBody | null;
   collider: RAPIER.Collider | null;
   distance: number;
-  baseSpeed: number;
-  pacePhase: number;
-  laneOffset: number;
+  /** Skill multiplier on the planned cornering speed (0.85–1.02). */
+  skill: number;
+  /** Top-speed multiplier on straights (0.92–1.0). */
+  straightLineSkill: number;
+  /** Smoothed instantaneous speed (m/s); we accelerate/brake toward target. */
   speedMs: number;
+  /** Smoothed lateral offset, lerped toward the racing line. */
+  laneOffset: number;
+  /** Current heading direction (used for impact-velocity calc). */
   tangent: THREE.Vector3;
+  /** Phase for low-amplitude throttle wave so packs don't be lockstep. */
+  pacePhase: number;
+  /** 0–1: how willing this driver is to commit to overtakes (vs. tucking in). */
+  aggression: number;
+  /** Smoothed 0–1 commit weight blending racing-line vs. overtake-line. */
+  overtakeCommit: number;
+  /** Brief speed-loss event: positive = active, ticks down each frame. */
+  mistakeTimer: number;
+  /** Cooldown until the AI is allowed to roll a new mistake. */
+  mistakeCooldown: number;
   destroyed: boolean;
   hitCooldown: number;
 }
@@ -46,7 +62,7 @@ export function createOpponents(
   playerStartProgress: number,
   count = 5,
 ): OpponentsController {
-  const centerline = createCenterline();
+  const racingLine = buildRacingLine();
   const opponents: Opponent[] = [];
   const debris: DebrisPiece[] = [];
   const palette = [0x0066ff, 0xff9f1a, 0x7c4dff, 0x20bf55, 0xff3366];
@@ -70,16 +86,25 @@ export function createOpponents(
     const row = Math.floor(i / 2);
     const side = i % 2 === 0 ? -1 : 1;
     const distance = playerStartDistance + (row + 1) * gridGap;
+    // Spread skill along the grid: front rows are quicker. Small random jitter
+    // so identical rows still differ frame-to-frame.
+    const skill = 0.88 + (count - i) / count * 0.14 + (Math.random() - 0.5) * 0.03;
+    const straightLineSkill = 0.85 + (count - i) / count * 0.15;
     opponents.push({
       mesh,
       body,
       collider,
       distance,
-      baseSpeed: 32 + i * 1.2,
-      pacePhase: i * 0.8,
-      laneOffset: side * 1.8,
+      skill,
+      straightLineSkill,
       speedMs: 0,
+      laneOffset: side * 1.5,
       tangent: new THREE.Vector3(0, 0, -1),
+      pacePhase: i * 0.8 + Math.random() * 1.5,
+      aggression: 0.4 + Math.random() * 0.5,
+      overtakeCommit: 0,
+      mistakeTimer: 0,
+      mistakeCooldown: 12 + Math.random() * 18,
       destroyed: false,
       hitCooldown: 0,
     });
@@ -145,29 +170,159 @@ export function createOpponents(
     spawnDebris(opponent, impactNormal, impactSpeed);
   }
 
-  function update(dt: number, elapsedTime: number, playerSpeedKmh: number): void {
-    const playerSpeedMs = Math.max(0, playerSpeedKmh / 3.6);
-    const adaptiveCap = Math.max(20, playerSpeedMs * 0.9);
-    for (const opponent of opponents) {
+  // How quickly an AI car accelerates to / decelerates toward target speed.
+  const ACCEL = 9.0;
+  const DECEL = 26.0;
+  const OFFSET_LERP = 3.5;
+  // Look-ahead distance (m) so we start braking *before* the corner.
+  const LOOKAHEAD_M = 55;
+  // Width of the asphalt minus a safety strip — clamp for traffic shifts.
+  const OFFSET_LIMIT = 7.5;
+  // Longitudinal trigger distances for traffic logic.
+  const FOLLOW_TRIGGER = 22; // metres ahead — start reacting
+  const SAFE_GAP = 8;        // close enough we must match speed if blocked
+
+  // Per-frame plan scratch — index aligned with `opponents`.
+  const planTargetSpeed = new Array<number>(opponents.length).fill(0);
+  const planTargetOffset = new Array<number>(opponents.length).fill(0);
+
+  /** Shortest signed gap from `from` to `to` along the closed track,
+   *  positive = `to` is ahead. */
+  function lapGap(from: number, to: number): number {
+    let g = (to - from) % trackLength;
+    if (g < -trackLength / 2) g += trackLength;
+    if (g > trackLength / 2) g -= trackLength;
+    return g;
+  }
+
+  function update(dt: number, elapsedTime: number, _playerSpeedKmh: number): void {
+    void _playerSpeedKmh;
+
+    const commitBlend = expDecayBlend(4.0, dt);
+    const offsetBlend = expDecayBlend(OFFSET_LERP, dt);
+
+    // Phase 1 — plan: racing-line targets, mistakes, idle bookkeeping.
+    for (let i = 0; i < opponents.length; i++) {
+      const opponent = opponents[i]!;
       opponent.hitCooldown = Math.max(0, opponent.hitCooldown - dt);
       if (opponent.destroyed || !opponent.body) continue;
 
-      const paceWave = Math.sin(elapsedTime * 0.5 + opponent.pacePhase) * 0.08;
-      const targetSpeed = opponent.baseSpeed * (1 + paceWave);
-      const speed = Math.min(targetSpeed, adaptiveCap);
-      opponent.speedMs = speed;
-      opponent.distance += speed * dt;
+      const here = racingLine.query(opponent.distance);
+      const ahead = racingLine.query(opponent.distance + LOOKAHEAD_M);
+      const planSpeed = Math.min(here.speed, ahead.speed) * opponent.skill;
+      const paceWave = 1 + Math.sin(elapsedTime * 0.4 + opponent.pacePhase) * 0.025;
+      let targetSpeed = Math.min(planSpeed * paceWave, 80 * opponent.straightLineSkill);
 
-      const wrapped = ((opponent.distance % trackLength) + trackLength) % trackLength;
-      const t = wrapped / trackLength;
+      opponent.mistakeCooldown -= dt;
+      if (opponent.mistakeTimer > 0) {
+        opponent.mistakeTimer -= dt;
+        targetSpeed *= 0.55;
+      } else if (opponent.mistakeCooldown <= 0) {
+        if (Math.random() < 0.03 * (1.05 - opponent.skill)) {
+          opponent.mistakeTimer = 0.6 + Math.random() * 0.7;
+        }
+        opponent.mistakeCooldown = 8 + Math.random() * 14;
+      }
 
-      const pos = centerline.getPointAt(t);
-      const tangent = centerline.getTangentAt(t).normalize();
-      opponent.tangent.copy(tangent);
-      const right = new THREE.Vector3().crossVectors(tangent, up).normalize();
-      const yaw = Math.atan2(-tangent.x, -tangent.z);
+      planTargetSpeed[i] = targetSpeed;
+      // Aim slightly ahead so we turn in toward the apex rather than chasing
+      // the offset under our wheels.
+      planTargetOffset[i] = racingLine.query(opponent.distance + 6).offset;
+    }
 
-      const offsetPos = pos.addScaledVector(right, opponent.laneOffset);
+    // Phase 2 — traffic & repulsion: fused O(n²) loop.
+    for (let i = 0; i < opponents.length; i++) {
+      const self = opponents[i]!;
+      if (self.destroyed || !self.body) continue;
+
+      let nearestAheadIdx = -1;
+      let nearestAheadGap = Infinity;
+      let push = 0;
+      const longitRange = 14;
+      const lateralBudget = 5.0;
+
+      for (let j = 0; j < opponents.length; j++) {
+        if (i === j) continue;
+        const other = opponents[j]!;
+        if (other.destroyed) continue;
+        const gap = lapGap(self.distance, other.distance);
+
+        if (gap > 0 && gap < nearestAheadGap) {
+          nearestAheadGap = gap;
+          nearestAheadIdx = j;
+        }
+
+        const longit = Math.abs(gap);
+        if (longit < longitRange) {
+          const lateral = self.laneOffset - other.laneOffset;
+          const lateralAbs = Math.abs(lateral);
+          if (lateralAbs < lateralBudget) {
+            const longitFalloff = 1 - longit / longitRange;
+            const sidewaysFalloff = 1 - lateralAbs / lateralBudget;
+            const strength = longitFalloff * sidewaysFalloff;
+            const pushSign = lateralAbs < 1e-3 ? (i < j ? 1 : -1) : Math.sign(lateral);
+            push += pushSign * 4.5 * strength;
+          }
+        }
+      }
+
+      let desiredCommit = 0;
+      let desiredOffsetShift = 0;
+      let speedFollowWeight = 0;
+      let speedFollowTarget = planTargetSpeed[i]!;
+      if (nearestAheadIdx >= 0 && nearestAheadGap < FOLLOW_TRIGGER) {
+        const other = opponents[nearestAheadIdx]!;
+        const closingSpeed = self.speedMs - other.speedMs;
+        const blockerOffset = other.laneOffset;
+        const roomRight = OFFSET_LIMIT - blockerOffset;
+        const roomLeft = OFFSET_LIMIT + blockerOffset;
+        const passSign = roomRight >= roomLeft ? 1 : -1;
+        const closeness = 1 - nearestAheadGap / FOLLOW_TRIGGER;
+        const speedAdvantage = THREE.MathUtils.clamp(closingSpeed / 6, 0, 1);
+        desiredCommit = closeness * (0.3 + 0.7 * speedAdvantage) * (0.4 + 0.6 * self.aggression);
+        desiredOffsetShift = blockerOffset + passSign * 2.2;
+        if (closingSpeed > 0) {
+          speedFollowWeight = closeness * (1 - desiredCommit) *
+            THREE.MathUtils.clamp((SAFE_GAP * 1.5 - nearestAheadGap) / SAFE_GAP, 0, 1);
+          speedFollowTarget = other.speedMs + 0.4;
+        }
+      }
+
+      self.overtakeCommit += (desiredCommit - self.overtakeCommit) * commitBlend;
+      const baseLine = planTargetOffset[i]!;
+      const overtakeLine = THREE.MathUtils.clamp(desiredOffsetShift, -OFFSET_LIMIT, OFFSET_LIMIT);
+      planTargetOffset[i] = baseLine * (1 - self.overtakeCommit) + overtakeLine * self.overtakeCommit;
+      planTargetSpeed[i] = planTargetSpeed[i]! * (1 - speedFollowWeight) +
+        speedFollowTarget * speedFollowWeight;
+
+      if (push !== 0) {
+        planTargetOffset[i] = THREE.MathUtils.clamp(
+          planTargetOffset[i]! + push,
+          -OFFSET_LIMIT,
+          OFFSET_LIMIT,
+        );
+      }
+    }
+
+    // Phase 3 — integrate and write to physics/mesh.
+    for (let i = 0; i < opponents.length; i++) {
+      const opponent = opponents[i]!;
+      if (opponent.destroyed || !opponent.body) continue;
+
+      const targetSpeed = planTargetSpeed[i]!;
+      const dv = targetSpeed - opponent.speedMs;
+      const rate = dv >= 0 ? ACCEL : DECEL;
+      opponent.speedMs += THREE.MathUtils.clamp(dv, -rate * dt, rate * dt);
+      if (opponent.speedMs < 0) opponent.speedMs = 0;
+      opponent.distance += opponent.speedMs * dt;
+
+      opponent.laneOffset += (planTargetOffset[i]! - opponent.laneOffset) * offsetBlend;
+
+      const sample = racingLine.sampleAt(opponent.distance);
+      opponent.tangent.copy(sample.tangent);
+      const yaw = tangentToYaw(sample.tangent.x, sample.tangent.z);
+
+      const offsetPos = sample.position.clone().addScaledVector(sample.right, opponent.laneOffset);
       opponent.mesh.position.set(offsetPos.x, 0.8, offsetPos.z);
       opponent.mesh.quaternion.setFromAxisAngle(up, yaw);
       opponent.body.setNextKinematicTranslation({
