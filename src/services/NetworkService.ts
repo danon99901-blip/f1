@@ -55,6 +55,10 @@ export class NetworkService implements Service {
         this.config.eventBus.emit('network:player-left', { playerId });
       },
 
+      onPlayerColorChanged: (playerId, color) => {
+        this.config.eventBus.emit('network:player-color-changed', { playerId, color });
+      },
+
       onRaceStart: (countdown) => {
         this.config.eventBus.emit('race:countdown-start', { seconds: countdown });
       },
@@ -140,6 +144,13 @@ export class NetworkService implements Service {
       throw new Error('NetworkService not connected');
     }
     this.client.startRace();
+  }
+
+  updatePlayerColor(color: number): void {
+    if (!this.client) {
+      throw new Error('NetworkService not connected');
+    }
+    this.client.updatePlayerColor(color);
   }
 
   broadcastToGuests(message: HostMessage): void {

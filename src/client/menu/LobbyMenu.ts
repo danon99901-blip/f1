@@ -7,18 +7,31 @@ export interface LobbyMenuCallbacks {
   onStartRace: () => void;
   onLeaveLobby: () => void;
   onChangeLaps: (laps: number) => void;
+  onColorChange: (color: number) => void;
 }
+
+// F1 team colors
+const CAR_COLORS = [
+  { name: 'Red Bull', hex: '#1E41FF' },
+  { name: 'Ferrari', hex: '#E10600' },
+  { name: 'Mercedes', hex: '#00D2BE' },
+  { name: 'McLaren', hex: '#FF8700' },
+  { name: 'Alpine', hex: '#0090FF' },
+  { name: 'Aston Martin', hex: '#006F62' },
+];
 
 export class LobbyMenu {
   private root: HTMLElement;
   private callbacks: LobbyMenuCallbacks;
   private roomInfo: RoomInfo;
   private isHost: boolean;
+  private localPlayerId: string;
 
-  constructor(roomInfo: RoomInfo, isHost: boolean, callbacks: LobbyMenuCallbacks) {
+  constructor(roomInfo: RoomInfo, isHost: boolean, callbacks: LobbyMenuCallbacks, localPlayerId: string) {
     this.roomInfo = roomInfo;
     this.isHost = isHost;
     this.callbacks = callbacks;
+    this.localPlayerId = localPlayerId;
     this.root = this.createDOM();
   }
 
@@ -39,13 +52,36 @@ export class LobbyMenu {
 
     const playersList = this.roomInfo.players
       .map(
-        (p) => `
-        <div class="lobby-player">
-          <div class="lobby-player-dot"></div>
-          <div class="lobby-player-name">${this.escapeHtml(p.name)}</div>
-          ${p.isHost ? '<div class="lobby-player-badge">Host</div>' : ''}
-        </div>
-      `,
+        (p) => {
+          const isLocalPlayer = p.id === this.localPlayerId;
+          const colorPicker = isLocalPlayer
+            ? `
+            <div class="lobby-color-picker">
+              ${CAR_COLORS.map(
+                (c) => `
+                <button
+                  class="lobby-color-btn ${parseInt(c.hex.replace('#', '0x')) === p.carColor ? 'active' : ''}"
+                  data-color="${parseInt(c.hex.replace('#', '0x'))}"
+                  style="background-color: ${c.hex}"
+                  title="${c.name}"
+                ></button>
+              `,
+              ).join('')}
+            </div>
+          `
+            : `<div class="lobby-player-color" style="background-color: #${p.carColor.toString(16).padStart(6, '0')}"></div>`;
+
+          return `
+            <div class="lobby-player">
+              <div class="lobby-player-info">
+                <div class="lobby-player-dot"></div>
+                <div class="lobby-player-name">${this.escapeHtml(p.name)}</div>
+                ${p.isHost ? '<div class="lobby-player-badge">Host</div>' : ''}
+              </div>
+              ${colorPicker}
+            </div>
+          `;
+        },
       )
       .join('');
 
@@ -100,6 +136,14 @@ export class LobbyMenu {
     // Copy button
     content.querySelector('#btn-copy')?.addEventListener('click', () => {
       this.copyRoomCode();
+    });
+
+    // Color picker buttons
+    content.querySelectorAll('.lobby-color-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const color = parseInt((btn as HTMLElement).dataset.color || '0xe10600');
+        this.callbacks.onColorChange(color);
+      });
     });
 
     // Leave button

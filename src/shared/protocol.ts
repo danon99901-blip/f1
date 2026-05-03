@@ -34,6 +34,7 @@ export interface HostSnapshot {
 export interface PlayerSnapshot {
   id: string;
   name: string;
+  carColor: number;
   position: [number, number, number];
   rotation: [number, number, number, number]; // quaternion (x, y, z, w)
   velocity: [number, number, number];
@@ -93,6 +94,17 @@ export interface StartRace {
   type: 'start_race';
 }
 
+export interface UpdateColor {
+  type: 'update_color';
+  color: number;
+}
+
+export interface PlayerColorChanged {
+  type: 'player_color_changed';
+  playerId: string;
+  color: number;
+}
+
 export interface RoomCreated {
   type: 'room_created';
   roomId: string;
@@ -103,7 +115,7 @@ export interface RoomJoined {
   type: 'room_joined';
   roomId: string;
   playerId: string;
-  players: { id: string; name: string; isHost: boolean }[];
+  players: { id: string; name: string; isHost: boolean; carColor: number }[];
   totalLaps: number;
 }
 
@@ -111,6 +123,7 @@ export interface PlayerJoined {
   type: 'player_joined';
   playerId: string;
   playerName: string;
+  carColor: number;
 }
 
 export interface PlayerLeft {
@@ -146,6 +159,7 @@ export type SignalingClientMessage =
   | JoinRoom
   | LeaveRoom
   | StartRace
+  | UpdateColor
   | SignalingOffer
   | SignalingAnswer
   | SignalingIceCandidate;
@@ -155,6 +169,7 @@ export type SignalingServerMessage =
   | RoomJoined
   | PlayerJoined
   | PlayerLeft
+  | PlayerColorChanged
   | RoomError
   | SignalingOffer
   | SignalingAnswer

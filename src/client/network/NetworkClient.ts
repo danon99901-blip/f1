@@ -15,6 +15,7 @@ export interface NetworkClientCallbacks {
   onRoomJoined: (roomInfo: RoomInfo, playerId: string) => void;
   onPlayerJoined: (playerId: string, playerName: string) => void;
   onPlayerLeft: (playerId: string) => void;
+  onPlayerColorChanged?: (playerId: string, color: number) => void;
   onRaceStart: (countdown: number) => void;
   onHostMessage: (message: HostMessage) => void;
   onGuestMessage: (guestId: string, message: ClientMessage) => void;
@@ -117,6 +118,13 @@ export class NetworkClient {
     });
   }
 
+  updatePlayerColor(color: number): void {
+    this.sendSignaling({
+      type: 'update_color',
+      color,
+    });
+  }
+
   leaveRoom(): void {
     this.sendSignaling({
       type: 'leave_room',
@@ -186,6 +194,10 @@ export class NetworkClient {
       case 'player_left':
         this.callbacks.onPlayerLeft(message.playerId);
         this.closePeerConnection(message.playerId);
+        break;
+
+      case 'player_color_changed':
+        this.callbacks.onPlayerColorChanged?.(message.playerId, message.color);
         break;
 
       case 'race_start':

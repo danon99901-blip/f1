@@ -21,6 +21,7 @@ export class LobbyState implements GameState {
     context.eventBus.on('network:room-created', this.handleRoomCreated);
     context.eventBus.on('network:player-joined', this.handlePlayerJoined);
     context.eventBus.on('network:player-left', this.handlePlayerLeft);
+    context.eventBus.on('network:player-color-changed', this.handlePlayerColorChanged);
     context.eventBus.on('race:countdown-start', this.handleRaceStart);
 
     // Get network service with explicit checks
@@ -97,6 +98,7 @@ export class LobbyState implements GameState {
       this.context.eventBus.off('network:room-created', this.handleRoomCreated);
       this.context.eventBus.off('network:player-joined', this.handlePlayerJoined);
       this.context.eventBus.off('network:player-left', this.handlePlayerLeft);
+      this.context.eventBus.off('network:player-color-changed', this.handlePlayerColorChanged);
       this.context.eventBus.off('race:countdown-start', this.handleRaceStart);
     }
 
@@ -129,6 +131,7 @@ export class LobbyState implements GameState {
           id: data.playerId,
           name: playerName,
           isHost: true,
+          carColor: 0xe10600, // Default Ferrari red
         }],
         totalLaps: 3,
         state: 'lobby',
@@ -162,6 +165,7 @@ export class LobbyState implements GameState {
             id: data.playerId,
             name: playerName,
             isHost: false,
+            carColor: 0xe10600, // Default Ferrari red
           }],
           totalLaps: 3,
           state: 'lobby',
@@ -177,12 +181,13 @@ export class LobbyState implements GameState {
     }, 0);
   };
 
-  private handlePlayerJoined = (data: { playerId: string; playerName: string }) => {
+  private handlePlayerJoined = (data: { playerId: string; playerName: string; carColor?: number }) => {
     if (this.roomInfo) {
       this.roomInfo.players.push({
         id: data.playerId,
         name: data.playerName,
         isHost: false,
+        carColor: data.carColor || 0xe10600,
       });
       this.updateLobby();
     }
@@ -192,6 +197,16 @@ export class LobbyState implements GameState {
     if (this.roomInfo) {
       this.roomInfo.players = this.roomInfo.players.filter((p) => p.id !== data.playerId);
       this.updateLobby();
+    }
+  };
+
+  private handlePlayerColorChanged = (data: { playerId: string; color: number }) => {
+    if (this.roomInfo) {
+      const player = this.roomInfo.players.find((p) => p.id === data.playerId);
+      if (player) {
+        player.carColor = data.color;
+        this.updateLobby();
+      }
     }
   };
 
@@ -223,6 +238,7 @@ export class LobbyState implements GameState {
     if (!this.roomInfo || !this.context) return;
 
     const isHost = this.roomInfo.players.some(p => p.isHost && p.id === this.context?.data?.playerId);
+    const localPlayerId = this.context.data?.playerId || '';
 
     this.lobbyMenu = new LobbyMenu(this.roomInfo, isHost, {
       onStartRace: () => {
@@ -244,7 +260,20 @@ export class LobbyState implements GameState {
           this.roomInfo.totalLaps = laps;
         }
       },
-    });
+      onColorChange: (color: number) => {
+        console.log('[LobbyState] Color changed to', color);
+        if (this.roomInfo && this.networkService) {
+          // Update local player color in room info
+          const player = this.roomInfo.players.find(p => p.id === localPlayerId);
+          if (player) {
+            player.carColor = color;
+            this.updateLobby();
+          }
+          // Broadcast color change to other players
+          this.networkService.updatePlayerColor(color);
+        }
+      },
+    }, localPlayerId);
 
     this.lobbyMenu.show();
   }
