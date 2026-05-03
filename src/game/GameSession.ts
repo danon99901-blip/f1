@@ -8,6 +8,7 @@ import { PhysicsService } from '../services/PhysicsService';
 import { RenderService } from '../services/RenderService';
 import { NetworkService } from '../services/NetworkService';
 import { InputService } from '../services/InputService';
+import { RemoteLogger } from '../utils/RemoteLogger';
 
 export class GameSession {
   private eventBus: EventBus;
@@ -30,7 +31,7 @@ export class GameSession {
       throw new Error('GameSession already initialized');
     }
 
-    console.log('[GameSession] Starting initialization...');
+    RemoteLogger.log('info', '[GameSession] Starting initialization...');
 
     // Register services
     this.serviceContainer.register('physics', () => new PhysicsService());
@@ -41,20 +42,20 @@ export class GameSession {
       () => new NetworkService({ signalingUrl, eventBus: this.eventBus })
     );
 
-    console.log('[GameSession] Services registered');
+    RemoteLogger.log('info', '[GameSession] Services registered');
 
     // Initialize core services
-    console.log('[GameSession] Initializing physics...');
+    RemoteLogger.log('info', '[GameSession] Initializing physics...');
     await this.serviceContainer.resolve<PhysicsService>('physics');
 
-    console.log('[GameSession] Initializing render...');
+    RemoteLogger.log('info', '[GameSession] Initializing render...');
     const renderService = await this.serviceContainer.resolve<RenderService>('render');
     renderService.initWithContainer(container);
 
-    console.log('[GameSession] Initializing input...');
+    RemoteLogger.log('info', '[GameSession] Initializing input...');
     await this.serviceContainer.resolve<InputService>('input');
 
-    console.log('[GameSession] Initialization complete!');
+    RemoteLogger.log('info', '[GameSession] Initialization complete!');
     this.initialized = true;
   }
 
