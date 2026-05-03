@@ -191,6 +191,16 @@ export class RacingState implements GameState {
     } else {
       // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
+
+      // Pre-create visual meshes for all other players
+      if (this.roomInfo) {
+        this.roomInfo.players.forEach(player => {
+          if (player.id !== this.playerId) {
+            console.log(`[RacingState] Pre-creating player mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
+            this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
+          }
+        });
+      }
     }
 
     console.log('[RacingState] Creating HUD...');
