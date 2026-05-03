@@ -45,20 +45,27 @@ export class Interpolator {
     position: THREE.Vector3;
     rotation: THREE.Quaternion;
   } | null {
+    console.log('[Interpolator] interpolate called: currentTime=%.2f, snapshots=%d',
+      currentTime, this.snapshots.length);
+
     if (this.snapshots.length < 2) {
       // Not enough data, return latest if available
       if (this.snapshots.length === 1) {
         const snap = this.snapshots[0]!;
+        console.log('[Interpolator] Only 1 snapshot, returning it: pos=(%.2f, %.2f, %.2f)',
+          snap.position.x, snap.position.y, snap.position.z);
         return {
           position: snap.position.clone(),
           rotation: snap.rotation.clone(),
         };
       }
+      console.warn('[Interpolator] Not enough snapshots (need at least 2), returning null');
       return null;
     }
 
     // Render time is slightly in the past to allow buffering
     const renderTime = currentTime - this.renderDelay;
+    console.log('[Interpolator] renderTime=%.2f (currentTime - %dms delay)', renderTime, this.renderDelay);
 
     // Find the two snapshots to interpolate between
     let from: Snapshot | null = null;
@@ -71,12 +78,15 @@ export class Interpolator {
       ) {
         from = this.snapshots[i]!;
         to = this.snapshots[i + 1]!;
+        console.log('[Interpolator] Found interpolation pair: from.timestamp=%.2f, to.timestamp=%.2f',
+          from.timestamp, to.timestamp);
         break;
       }
     }
 
     // If we're ahead of all snapshots, extrapolate from the last two
     if (!from || !to) {
+      console.log('[Interpolator] No interpolation pair found, attempting extrapolation');
       const len = this.snapshots.length;
       if (len >= 2) {
         from = this.snapshots[len - 2]!;
@@ -84,9 +94,12 @@ export class Interpolator {
 
         // Extrapolate using velocity
         const dt = (renderTime - to.timestamp) / 1000; // Convert to seconds
+        console.log('[Interpolator] Extrapolation dt=%.3fs (renderTime - to.timestamp)', dt);
         if (dt > 0 && dt < 0.2) {
           // Only extrapolate up to 200ms
           const extrapolatedPos = to.position.clone().addScaledVector(to.velocity, dt);
+          console.log('[Interpolator] Extrapolating: pos=(%.2f, %.2f, %.2f)',
+            extrapolatedPos.x, extrapolatedPos.y, extrapolatedPos.z);
           return {
             position: extrapolatedPos,
             rotation: to.rotation.clone(),
@@ -94,18 +107,21 @@ export class Interpolator {
         }
 
         // Too far ahead, just use latest
+        console.log('[Interpolator] Too far ahead (dt=%.3fs > 0.2s), using latest snapshot', dt);
         return {
           position: to.position.clone(),
           rotation: to.rotation.clone(),
         };
       }
 
+      console.warn('[Interpolator] Cannot extrapolate, returning null');
       return null;
     }
 
     // Interpolate between from and to
     const totalDelta = to.timestamp - from.timestamp;
     if (totalDelta === 0) {
+      console.log('[Interpolator] Zero time delta, returning to snapshot');
       return {
         position: to.position.clone(),
         rotation: to.rotation.clone(),
@@ -114,12 +130,16 @@ export class Interpolator {
 
     const t = (renderTime - from.timestamp) / totalDelta;
     const clampedT = Math.max(0, Math.min(1, t));
+    console.log('[Interpolator] Interpolation factor t=%.3f (clamped=%.3f)', t, clampedT);
 
     // Linear interpolation for position
     const position = new THREE.Vector3().lerpVectors(from.position, to.position, clampedT);
 
     // Spherical interpolation for rotation (smoother)
     const rotation = new THREE.Quaternion().slerpQuaternions(from.rotation, to.rotation, clampedT);
+
+    console.log('[Interpolator] Interpolated result: pos=(%.2f, %.2f, %.2f)',
+      position.x, position.y, position.z);
 
     // Clean up old snapshots (keep at least 2)
     while (this.snapshots.length > 2 && this.snapshots[0]!.timestamp < renderTime - 1000) {
@@ -135,5 +155,9 @@ export class Interpolator {
 
   hasData(): boolean {
     return this.snapshots.length > 0;
+  }
+
+  getBufferSize(): number {
+    return this.snapshots.length;
   }
 }

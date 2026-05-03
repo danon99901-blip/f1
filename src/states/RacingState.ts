@@ -580,7 +580,11 @@ export class RacingState implements GameState {
   };
 
   private updateHostBroadcast(dt: number): void {
-    if (!this.networkService || !this.playerController || !this.raceController) return;
+    if (!this.networkService || !this.playerController || !this.raceController) {
+      console.log('[HOST_BROADCAST] Early return: networkService=%s, playerController=%s, raceController=%s',
+        !!this.networkService, !!this.playerController, !!this.raceController);
+      return;
+    }
 
     this.lastSnapshotTime += dt * 1000; // Convert to ms
 
@@ -593,6 +597,10 @@ export class RacingState implements GameState {
       const position = vehicle.rigidBody.translation();
       const rotation = vehicle.rigidBody.rotation();
       const velocity = vehicle.rigidBody.linvel();
+
+      console.log('[HOST_BROADCAST] Tick %d: Preparing snapshot', this.hostTick);
+      console.log('[HOST_BROADCAST] Host position: (%.2f, %.2f, %.2f), speed: %.1f km/h',
+        position.x, position.y, position.z, vehicle.getSpeedKmh());
 
       // Build players array - start with host
       const players = [{
@@ -610,13 +618,20 @@ export class RacingState implements GameState {
         bestLapMs: Number.isNaN(lapState.bestLapTime) ? null : lapState.bestLapTime * 1000,
       }];
 
+      console.log('[HOST_BROADCAST] Host data: id=%s, name=%s, color=0x%s',
+        this.playerId, players[0].name, players[0].carColor.toString(16));
+
       // Add guest players
+      console.log('[HOST_BROADCAST] Guest vehicles count: %d', this.guestVehicles.size);
       this.guestVehicles.forEach((guestData, guestId) => {
         const guestVehicle = guestData.vehicle;
         const guestLapState = this.raceController!.getPlayerLapState(guestId);
         const guestPos = guestVehicle.rigidBody.translation();
         const guestRot = guestVehicle.rigidBody.rotation();
         const guestVel = guestVehicle.rigidBody.linvel();
+
+        console.log('[HOST_BROADCAST] Guest %s position: (%.2f, %.2f, %.2f), speed: %.1f km/h',
+          guestId, guestPos.x, guestPos.y, guestPos.z, guestVehicle.getSpeedKmh());
 
         players.push({
           id: guestId,
@@ -641,7 +656,9 @@ export class RacingState implements GameState {
         players,
       };
 
+      console.log('[HOST_BROADCAST] Broadcasting snapshot with %d players to guests', players.length);
       this.networkService.broadcastToGuests(snapshot);
+      console.log('[HOST_BROADCAST] Snapshot sent successfully');
     }
   }
 
@@ -860,30 +877,47 @@ export class RacingState implements GameState {
   private handleHostSnapshot(snapshot: any): void {
     const now = performance.now();
 
+    console.log('[GUEST_SNAPSHOT] Received snapshot tick=%d, timestamp=%.2f, players=%d',
+      snapshot.tick, snapshot.timestamp, snapshot.players.length);
+
     // If OpponentController not ready yet, buffer the snapshot
     if (!this.opponentController) {
-      console.log(`[RacingState] OpponentController not ready, buffering snapshot with ${snapshot.players.length} players`);
+      console.log('[GUEST_SNAPSHOT] OpponentController not ready, buffering snapshot with %d players',
+        snapshot.players.length);
       this.pendingSnapshots.push({ snapshot, timestamp: now });
+      console.log('[GUEST_SNAPSHOT] Pending snapshots buffer size: %d', this.pendingSnapshots.length);
       return;
     }
 
-    console.log(`[RacingState] Received snapshot with ${snapshot.players.length} players:`,
+    console.log('[GUEST_SNAPSHOT] Processing snapshot with %d players:',
+      snapshot.players.length,
       snapshot.players.map((p: any) => `${p.id}(${p.name})`).join(', '));
 
     // Process all players in snapshot
     snapshot.players.forEach((playerSnapshot: any) => {
+      console.log('[GUEST_SNAPSHOT] Processing player: id=%s, name=%s, pos=(%.2f, %.2f, %.2f), speed=%.1f km/h',
+        playerSnapshot.id, playerSnapshot.name,
+        playerSnapshot.position[0], playerSnapshot.position[1], playerSnapshot.position[2],
+        playerSnapshot.speedKmh);
+
       if (playerSnapshot.id === this.playerId) {
+        console.log('[GUEST_SNAPSHOT] This is local player, performing server reconciliation');
         // This is our local player - perform server reconciliation
         if (this.clientPrediction) {
           this.clientPrediction.reconcile(playerSnapshot, now);
           // Clear old inputs that server has processed
           this.clientPrediction.clearOldInputs(snapshot.timestamp);
+          console.log('[GUEST_SNAPSHOT] Server reconciliation complete');
+        } else {
+          console.warn('[GUEST_SNAPSHOT] clientPrediction is null, skipping reconciliation');
         }
       } else {
+        console.log('[GUEST_SNAPSHOT] This is remote player (host)');
         // Remote player - add if not exists
         const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
         if (!existingMesh) {
-          console.log(`[RacingState] Creating remote player ${playerSnapshot.id} (${playerSnapshot.name}) with color 0x${playerSnapshot.carColor.toString(16)}`);
+          console.log('[GUEST_SNAPSHOT] Creating remote player %s (%s) with color 0x%s',
+            playerSnapshot.id, playerSnapshot.name, playerSnapshot.carColor.toString(16));
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
@@ -891,53 +925,77 @@ export class RacingState implements GameState {
             false
           );
         } else {
-          console.log(`[RacingState] Remote player ${playerSnapshot.id} mesh already exists, updating position`);
+          console.log('[GUEST_SNAPSHOT] Remote player %s mesh already exists, updating position', playerSnapshot.id);
         }
 
         // Update opponent with snapshot
+        console.log('[GUEST_SNAPSHOT] Calling updateRemotePlayer for %s', playerSnapshot.id);
         this.opponentController!.updateRemotePlayer(playerSnapshot, now);
+        console.log('[GUEST_SNAPSHOT] updateRemotePlayer complete for %s', playerSnapshot.id);
       }
     });
+
+    console.log('[GUEST_SNAPSHOT] Snapshot processing complete');
   }
 
   private flushPendingSnapshots(): void {
-    if (this.pendingSnapshots.length === 0) return;
+    if (this.pendingSnapshots.length === 0) {
+      console.log('[FLUSH_SNAPSHOTS] No pending snapshots to flush');
+      return;
+    }
 
-    console.log(`[RacingState] Flushing ${this.pendingSnapshots.length} buffered snapshots`);
+    console.log('[FLUSH_SNAPSHOTS] Flushing %d buffered snapshots', this.pendingSnapshots.length);
 
-    this.pendingSnapshots.forEach(({ snapshot, timestamp }) => {
+    this.pendingSnapshots.forEach(({ snapshot, timestamp }, index) => {
+      console.log('[FLUSH_SNAPSHOTS] Processing buffered snapshot %d/%d: tick=%d, players=%d',
+        index + 1, this.pendingSnapshots.length, snapshot.tick, snapshot.players.length);
+
       // Process snapshot as if it just arrived
-      if (!this.opponentController) return;
+      if (!this.opponentController) {
+        console.error('[FLUSH_SNAPSHOTS] OpponentController is null during flush!');
+        return;
+      }
 
       snapshot.players.forEach((playerSnapshot: any) => {
         if (playerSnapshot.id === this.playerId) {
+          console.log('[FLUSH_SNAPSHOTS] Skipping local player reconciliation for buffered snapshot');
           // Skip local player reconciliation for buffered snapshots
           return;
         }
 
+        console.log('[FLUSH_SNAPSHOTS] Processing remote player %s from buffered snapshot', playerSnapshot.id);
+
         // Remote player - add if not exists
         const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
         if (!existingMesh) {
-          console.log(`[RacingState] Creating remote player from buffered snapshot: ${playerSnapshot.id} (${playerSnapshot.name}) with color 0x${playerSnapshot.carColor.toString(16)}`);
+          console.log('[FLUSH_SNAPSHOTS] Creating remote player from buffered snapshot: %s (%s) with color 0x%s',
+            playerSnapshot.id, playerSnapshot.name, playerSnapshot.carColor.toString(16));
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
             playerSnapshot.carColor,
             false
           );
+        } else {
+          console.log('[FLUSH_SNAPSHOTS] Remote player %s already exists', playerSnapshot.id);
         }
 
         // Update opponent with snapshot
+        console.log('[FLUSH_SNAPSHOTS] Updating remote player %s with buffered snapshot', playerSnapshot.id);
         this.opponentController!.updateRemotePlayer(playerSnapshot, timestamp);
       });
     });
 
     // Clear buffer
     this.pendingSnapshots = [];
+    console.log('[FLUSH_SNAPSHOTS] Pending snapshots buffer cleared');
   }
 
   private sendGuestInput(input: InputState, dt: number): void {
-    if (!this.networkService) return;
+    if (!this.networkService) {
+      console.log('[GUEST_INPUT] Early return: networkService is null');
+      return;
+    }
 
     this.lastInputSendTime += dt * 1000; // Convert to ms
 
@@ -956,20 +1014,35 @@ export class RacingState implements GameState {
         timestamp,
       };
 
+      console.log('[GUEST_INPUT] Sending input seq=%d: throttle=%.2f, brake=%.2f, steer=%.2f, timestamp=%.2f',
+        this.inputSeq, input.throttle, input.brake, input.steer, timestamp);
+
       // Record input for client-side prediction
       if (this.clientPrediction) {
         this.clientPrediction.recordInput(this.inputSeq, input, timestamp);
+        console.log('[GUEST_INPUT] Recorded input for client-side prediction');
+      } else {
+        console.warn('[GUEST_INPUT] clientPrediction is null, skipping input recording');
       }
 
       this.networkService.sendToHost(inputMessage);
+      console.log('[GUEST_INPUT] Input sent to host');
     }
   }
 
   private handleGuestInput(guestId: string, input: any): void {
-    if (!this.physicsService || !this.renderService) return;
+    if (!this.physicsService || !this.renderService) {
+      console.log('[HOST_INPUT] Early return: physicsService=%s, renderService=%s',
+        !!this.physicsService, !!this.renderService);
+      return;
+    }
+
+    console.log('[HOST_INPUT] Received input from guest %s: seq=%d, throttle=%.2f, brake=%.2f, steer=%.2f',
+      guestId, input.seq, input.throttle, input.brake, input.steer);
 
     // Create guest vehicle if it doesn't exist
     if (!this.guestVehicles.has(guestId)) {
+      console.log('[HOST_INPUT] Guest vehicle does not exist, creating it');
       this.createGuestVehicle(guestId);
     }
 
@@ -981,6 +1054,10 @@ export class RacingState implements GameState {
         brake: input.brake,
         steer: input.steer,
       };
+      console.log('[HOST_INPUT] Stored input for guest %s: throttle=%.2f, brake=%.2f, steer=%.2f',
+        guestId, guestData.lastInput.throttle, guestData.lastInput.brake, guestData.lastInput.steer);
+    } else {
+      console.error('[HOST_INPUT] Failed to get guest data after creation for %s', guestId);
     }
   }
 
@@ -1037,9 +1114,26 @@ export class RacingState implements GameState {
   }
 
   private updateGuestVehicles(dt: number): void {
-    this.guestVehicles.forEach((guestData) => {
+    console.log('[HOST_GUEST_UPDATE] Updating %d guest vehicles, dt=%.3f', this.guestVehicles.size, dt);
+    this.guestVehicles.forEach((guestData, guestId) => {
+      const input = guestData.lastInput;
+      console.log('[HOST_GUEST_UPDATE] Applying input to guest %s: throttle=%.2f, brake=%.2f, steer=%.2f',
+        guestId, input.throttle, input.brake, input.steer);
+
+      // Get position before update
+      const posBefore = guestData.vehicle.rigidBody.translation();
+      const speedBefore = guestData.vehicle.getSpeedKmh();
+
       // Apply the latest input to the guest vehicle
       guestData.controller.update(guestData.lastInput, dt);
+
+      // Get position after update
+      const posAfter = guestData.vehicle.rigidBody.translation();
+      const speedAfter = guestData.vehicle.getSpeedKmh();
+
+      console.log('[HOST_GUEST_UPDATE] Guest %s: before pos=(%.2f, %.2f, %.2f) speed=%.1f, after pos=(%.2f, %.2f, %.2f) speed=%.1f',
+        guestId, posBefore.x, posBefore.y, posBefore.z, speedBefore,
+        posAfter.x, posAfter.y, posAfter.z, speedAfter);
     });
   }
 
@@ -1048,15 +1142,23 @@ export class RacingState implements GameState {
    * This ensures that the host sees guest cars in the correct positions.
    */
   private updateGuestVisuals(): void {
-    if (this.gameMode !== 'multi_host' || !this.opponentController) return;
+    if (this.gameMode !== 'multi_host' || !this.opponentController) {
+      return;
+    }
+
+    console.log('[HOST_GUEST_VISUALS] Updating visuals for %d guests', this.guestVehicles.size);
 
     this.guestVehicles.forEach((guestData, guestId) => {
       const vehicle = guestData.vehicle;
       const position = vehicle.chassisMesh.position.clone();
       const rotation = vehicle.chassisMesh.quaternion.clone();
 
+      console.log('[HOST_GUEST_VISUALS] Guest %s: mesh pos=(%.2f, %.2f, %.2f)',
+        guestId, position.x, position.y, position.z);
+
       // Update the visual mesh directly (no interpolation needed on host)
       this.opponentController!.updateRemotePlayerDirect(guestId, position, rotation);
+      console.log('[HOST_GUEST_VISUALS] Updated visual mesh for guest %s', guestId);
     });
   }
 
