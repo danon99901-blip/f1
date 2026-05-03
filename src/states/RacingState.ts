@@ -194,12 +194,20 @@ export class RacingState implements GameState {
 
       // Pre-create visual meshes for all other players
       if (this.roomInfo) {
+        console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
+          this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
+        console.log(`[RacingState] My playerId: ${this.playerId}`);
+
         this.roomInfo.players.forEach(player => {
           if (player.id !== this.playerId) {
             console.log(`[RacingState] Pre-creating player mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
             this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
+          } else {
+            console.log(`[RacingState] Skipping self: ${player.id}`);
           }
         });
+      } else {
+        console.warn('[RacingState] No roomInfo available for pre-creating meshes!');
       }
     }
 
@@ -636,6 +644,9 @@ export class RacingState implements GameState {
 
     const now = performance.now();
 
+    console.log(`[RacingState] Received snapshot with ${snapshot.players.length} players:`,
+      snapshot.players.map((p: any) => `${p.id}(${p.name})`).join(', '));
+
     // Process all players in snapshot
     snapshot.players.forEach((playerSnapshot: any) => {
       if (playerSnapshot.id === this.playerId) {
@@ -647,14 +658,17 @@ export class RacingState implements GameState {
         }
       } else {
         // Remote player - add if not exists
-        if (!this.opponentController!.getRemotePlayerMesh(playerSnapshot.id)) {
-          console.log(`[RacingState] Creating remote player ${playerSnapshot.id} with color 0x${playerSnapshot.carColor.toString(16)}`);
+        const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
+        if (!existingMesh) {
+          console.log(`[RacingState] Creating remote player ${playerSnapshot.id} (${playerSnapshot.name}) with color 0x${playerSnapshot.carColor.toString(16)}`);
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
             playerSnapshot.carColor,
             false
           );
+        } else {
+          console.log(`[RacingState] Remote player ${playerSnapshot.id} mesh already exists, updating position`);
         }
 
         // Update opponent with snapshot
