@@ -15,8 +15,6 @@ export class PlayerNameTag {
     this.canvas.height = 64;
     this.context = this.canvas.getContext('2d')!;
 
-    this.drawText(color);
-
     const texture = new THREE.CanvasTexture(this.canvas);
     texture.needsUpdate = true;
 
@@ -30,6 +28,8 @@ export class PlayerNameTag {
     this.sprite = new THREE.Sprite(material);
     this.sprite.scale.set(2, 0.5, 1);
     this.sprite.renderOrder = 999; // Always render on top
+
+    this.drawText(color);
   }
 
   private drawText(color: string): void {
@@ -50,12 +50,14 @@ export class PlayerNameTag {
     ctx.fillText(this.playerName, this.canvas.width / 2, this.canvas.height / 2);
 
     // Update texture
-    if (this.sprite.material.map) {
-      this.sprite.material.map.needsUpdate = true;
+    const material = this.sprite?.material;
+    if (material && material instanceof THREE.SpriteMaterial && material.map) {
+      material.map.needsUpdate = true;
     }
   }
 
   updatePosition(carPosition: THREE.Vector3): void {
+    if (!this.sprite) return;
     this.sprite.position.copy(carPosition);
     this.sprite.position.y += 1.5; // Float above car
   }
@@ -69,7 +71,10 @@ export class PlayerNameTag {
   }
 
   dispose(): void {
-    this.sprite.material.map?.dispose();
-    this.sprite.material.dispose();
+    const material = this.sprite?.material;
+    if (material && material instanceof THREE.SpriteMaterial) {
+      material.map?.dispose();
+      material.dispose();
+    }
   }
 }
