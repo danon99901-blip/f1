@@ -68,6 +68,9 @@ export class RacingState implements GameState {
   private groundGrid: THREE.GridHelper | null = null;
   private vehicleMeshes: THREE.Object3D[] = [];
 
+  // Flag to track opponent initialization in multiplayer
+  private opponentInitialized = false;
+
   async enter(context: StateContext): Promise<void> {
     console.log('[RacingState] Enter started');
     this.context = context;
@@ -191,32 +194,7 @@ export class RacingState implements GameState {
     } else {
       // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
-
-      // Pre-create visual meshes for all other players (both Host and Guest)
-      if (this.roomInfo && (this.gameMode === 'multi_guest' || this.gameMode === 'multi_host')) {
-        console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
-          this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
-        console.log(`[RacingState] My playerId: ${this.playerId}`);
-
-        this.roomInfo.players.forEach(player => {
-          if (player.id !== this.playerId) {
-            console.log(`[RacingState] Pre-creating player mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
-            this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
-
-            // Set initial position from player's actual car position
-            const playerCarPos = this.playerController.vehicle.chassisMesh.position.clone();
-            const playerCarRot = this.playerController.vehicle.chassisMesh.quaternion.clone();
-
-            console.log(`[RacingState] Setting opponent ${player.id} initial position to player car position:`, playerCarPos);
-
-            this.opponentController!.setInitialPosition(player.id, playerCarPos, playerCarRot);
-          } else {
-            console.log(`[RacingState] Skipping self: ${player.id}`);
-          }
-        });
-      } else {
-        console.warn('[RacingState] No roomInfo available for pre-creating meshes!');
-      }
+      // Opponent initialization will happen in update() after first physics step
     }
 
     console.log('[RacingState] Creating HUD...');
@@ -249,14 +227,11 @@ export class RacingState implements GameState {
         this.sendRaceConfig(track.lapInfo.length);
         // Send initial position to guests
         this.sendInitialPosition();
-        // Send first snapshot immediately to ensure guests see host's car
-        this.sendImmediateSnapshot();
 
         // Send again after a short delay to ensure it arrives
         setTimeout(() => {
           this.sendInitialPosition();
-          this.sendImmediateSnapshot();
-          console.log('[RacingState] Host sent delayed initial_position and snapshot for reliability');
+          console.log('[RacingState] Host sent delayed initial_position for reliability');
         }, 100);
       }
       // Guest will send initial position after receiving race_config
@@ -286,6 +261,12 @@ export class RacingState implements GameState {
     const vehicle = this.playerController.getVehicle();
     const forwardSpeedKmh = vehicle.getForwardSpeedKmh();
     this.playerArcDistance += (forwardSpeedKmh / 3.6) * dt;
+
+    // Initialize opponents in multiplayer after first physics update
+    if (!this.opponentInitialized && this.gameMode !== 'single' && this.opponentController) {
+      this.initializeMultiplayerOpponents();
+      this.opponentInitialized = true;
+    }
 
     // Update opponents
     if (this.opponentController && this.gameMode === 'single') {
@@ -494,6 +475,42 @@ export class RacingState implements GameState {
     this.renderService = null;
     this.inputService = null;
     this.context = null;
+  }
+
+  private initializeMultiplayerOpponents(): void {
+    if (!this.opponentController || !this.roomInfo || !this.playerController) return;
+
+    console.log(`[RacingState] Initializing multiplayer opponents after first physics update`);
+    console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
+      this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
+    console.log(`[RacingState] My playerId: ${this.playerId}`);
+
+    // Get current validated position from player's car
+    const vehicle = this.playerController.getVehicle();
+    const playerCarPos = vehicle.chassisMesh.position.clone();
+    const playerCarRot = vehicle.chassisMesh.quaternion.clone();
+
+    console.log(`[RacingState] Player car position after physics update:`, playerCarPos);
+
+    // Create visual meshes for all other players
+    this.roomInfo.players.forEach(player => {
+      if (player.id !== this.playerId) {
+        console.log(`[RacingState] Creating opponent mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
+        this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
+
+        // Set initial position using validated car position
+        console.log(`[RacingState] Setting opponent ${player.id} initial position:`, playerCarPos);
+        this.opponentController!.setInitialPosition(player.id, playerCarPos, playerCarRot);
+      } else {
+        console.log(`[RacingState] Skipping self: ${player.id}`);
+      }
+    });
+
+    // Send first snapshot with validated position
+    if (this.gameMode === 'multi_host') {
+      this.sendImmediateSnapshot();
+      console.log('[RacingState] Host sent first snapshot after opponent initialization');
+    }
   }
 
   private handleRaceFinished = () => {
