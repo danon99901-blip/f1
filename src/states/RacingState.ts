@@ -71,6 +71,9 @@ export class RacingState implements GameState {
   // Flag to track opponent initialization in multiplayer
   private opponentInitialized = false;
 
+  // Buffer for snapshots that arrive before OpponentController is created
+  private pendingSnapshots: Array<{ snapshot: any; timestamp: number }> = [];
+
   async enter(context: StateContext): Promise<void> {
     console.log('[RacingState] Enter started');
     this.context = context;
@@ -195,6 +198,9 @@ export class RacingState implements GameState {
       // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
       // Opponent initialization will happen in update() after first physics step
+
+      // Apply any buffered snapshots that arrived before OpponentController was created
+      this.flushPendingSnapshots();
     }
 
     console.log('[RacingState] Creating HUD...');
@@ -297,6 +303,11 @@ export class RacingState implements GameState {
     // Multiplayer: Guest receives and interpolates
     if (this.gameMode === 'multi_guest' && this.opponentController) {
       this.opponentController.updateRemoteVisuals(performance.now());
+    }
+
+    // Multiplayer: Host updates guest visual meshes
+    if (this.gameMode === 'multi_host') {
+      this.updateGuestVisuals();
     }
 
     // Update camera with frame-rate independent smoothing
@@ -478,19 +489,22 @@ export class RacingState implements GameState {
   }
 
   private initializeMultiplayerOpponents(): void {
-    if (!this.opponentController || !this.roomInfo || !this.playerController) return;
+    if (!this.opponentController || !this.roomInfo || !this.playerController || !this.track) return;
 
     console.log(`[RacingState] Initializing multiplayer opponents after first physics update`);
     console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
       this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
     console.log(`[RacingState] My playerId: ${this.playerId}`);
 
-    // Get current validated position from player's car
-    const vehicle = this.playerController.getVehicle();
-    const playerCarPos = vehicle.chassisMesh.position.clone();
-    const playerCarRot = vehicle.chassisMesh.quaternion.clone();
+    // Get base spawn position and rotation from track
+    const spawn = this.track.lapInfo.spawn;
+    const baseSpawnPos = spawn.position.clone();
+    const baseSpawnRot = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      Math.atan2(-spawn.forward.x, -spawn.forward.z)
+    );
 
-    console.log(`[RacingState] Player car position after physics update:`, playerCarPos);
+    console.log(`[RacingState] Base spawn position:`, baseSpawnPos);
 
     // Create visual meshes for all other players
     this.roomInfo.players.forEach(player => {
@@ -498,9 +512,10 @@ export class RacingState implements GameState {
         console.log(`[RacingState] Creating opponent mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
         this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
 
-        // Set initial position using validated car position
-        console.log(`[RacingState] Setting opponent ${player.id} initial position:`, playerCarPos);
-        this.opponentController!.setInitialPosition(player.id, playerCarPos, playerCarRot);
+        // Calculate spawn position for this opponent
+        const opponentSpawnPos = this.getOpponentSpawnPosition(player.id, baseSpawnPos);
+        console.log(`[RacingState] Setting opponent ${player.id} initial position:`, opponentSpawnPos);
+        this.opponentController!.setInitialPosition(player.id, opponentSpawnPos, baseSpawnRot);
       } else {
         console.log(`[RacingState] Skipping self: ${player.id}`);
       }
@@ -809,9 +824,14 @@ export class RacingState implements GameState {
   }
 
   private handleHostSnapshot(snapshot: any): void {
-    if (!this.opponentController) return;
-
     const now = performance.now();
+
+    // If OpponentController not ready yet, buffer the snapshot
+    if (!this.opponentController) {
+      console.log(`[RacingState] OpponentController not ready, buffering snapshot with ${snapshot.players.length} players`);
+      this.pendingSnapshots.push({ snapshot, timestamp: now });
+      return;
+    }
 
     console.log(`[RacingState] Received snapshot with ${snapshot.players.length} players:`,
       snapshot.players.map((p: any) => `${p.id}(${p.name})`).join(', '));
@@ -844,6 +864,42 @@ export class RacingState implements GameState {
         this.opponentController!.updateRemotePlayer(playerSnapshot, now);
       }
     });
+  }
+
+  private flushPendingSnapshots(): void {
+    if (this.pendingSnapshots.length === 0) return;
+
+    console.log(`[RacingState] Flushing ${this.pendingSnapshots.length} buffered snapshots`);
+
+    this.pendingSnapshots.forEach(({ snapshot, timestamp }) => {
+      // Process snapshot as if it just arrived
+      if (!this.opponentController) return;
+
+      snapshot.players.forEach((playerSnapshot: any) => {
+        if (playerSnapshot.id === this.playerId) {
+          // Skip local player reconciliation for buffered snapshots
+          return;
+        }
+
+        // Remote player - add if not exists
+        const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
+        if (!existingMesh) {
+          console.log(`[RacingState] Creating remote player from buffered snapshot: ${playerSnapshot.id} (${playerSnapshot.name}) with color 0x${playerSnapshot.carColor.toString(16)}`);
+          this.opponentController!.addRemotePlayer(
+            playerSnapshot.id,
+            playerSnapshot.name,
+            playerSnapshot.carColor,
+            false
+          );
+        }
+
+        // Update opponent with snapshot
+        this.opponentController!.updateRemotePlayer(playerSnapshot, timestamp);
+      });
+    });
+
+    // Clear buffer
+    this.pendingSnapshots = [];
   }
 
   private sendGuestInput(input: InputState, dt: number): void {
@@ -946,6 +1002,23 @@ export class RacingState implements GameState {
     });
   }
 
+  /**
+   * Update visual meshes of guest players on the host.
+   * This ensures that the host sees guest cars in the correct positions.
+   */
+  private updateGuestVisuals(): void {
+    if (this.gameMode !== 'multi_host' || !this.opponentController) return;
+
+    this.guestVehicles.forEach((guestData, guestId) => {
+      const vehicle = guestData.vehicle;
+      const position = vehicle.chassisMesh.position.clone();
+      const rotation = vehicle.chassisMesh.quaternion.clone();
+
+      // Update the visual mesh directly (no interpolation needed on host)
+      this.opponentController!.updateRemotePlayerDirect(guestId, position, rotation);
+    });
+  }
+
   private handlePlayerDisconnect(playerId: string): void {
     console.log(`[RacingState] Handling disconnect for player ${playerId}`);
 
@@ -1036,5 +1109,28 @@ export class RacingState implements GameState {
         }
       }
     });
+  }
+
+  /**
+   * Calculate spawn position for an opponent based on their player ID.
+   * Host spawns on the left (-X), guests spawn on the right (+X) with increasing offsets.
+   */
+  private getOpponentSpawnPosition(opponentId: string, baseSpawnPos: THREE.Vector3): THREE.Vector3 {
+    const spawnPos = baseSpawnPos.clone();
+
+    if (this.gameMode === 'multi_host') {
+      // Host is on the left, so opponents (guests) spawn on the right
+      // Find the index of this opponent in the room
+      const opponentIndex = this.roomInfo?.players.findIndex(p => p.id === opponentId) ?? 0;
+      const offset = 1.5 + (opponentIndex * 2); // 1.5, 3.5, 5.5, etc.
+      spawnPos.x += offset;
+      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, offset=+${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
+    } else if (this.gameMode === 'multi_guest') {
+      // Guest is on the right, so opponent (host) spawns on the left
+      spawnPos.x -= 1.5;
+      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, offset=-1.5, final=${spawnPos.x.toFixed(2)}`);
+    }
+
+    return spawnPos;
   }
 }

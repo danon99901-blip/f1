@@ -124,6 +124,19 @@ export class OpponentController {
     }
   }
 
+  /**
+   * Update remote player position directly without interpolation.
+   * Used by the host to update guest visual meshes based on their physics bodies.
+   */
+  updateRemotePlayerDirect(id: string, position: THREE.Vector3, rotation: THREE.Quaternion): void {
+    const opponent = this.remoteOpponents.get(id);
+    if (opponent) {
+      opponent.mesh.position.copy(position);
+      opponent.mesh.quaternion.copy(rotation);
+      opponent.nameTag.updatePosition(position);
+    }
+  }
+
   updateRemoteVisuals(currentTime: number): THREE.Group | null {
     let localPlayerMesh: THREE.Group | null = null;
 
