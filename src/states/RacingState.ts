@@ -4,6 +4,7 @@ import type { GameState, StateContext } from '../core/GameStateMachine';
 import type { PhysicsService } from '../services/PhysicsService';
 import type { RenderService } from '../services/RenderService';
 import type { InputService } from '../services/InputService';
+import type { NetworkService } from '../services/NetworkService';
 import { RaceController } from '../game/RaceController';
 import { PlayerController } from '../game/PlayerController';
 import { OpponentController } from '../game/OpponentController';
@@ -11,6 +12,7 @@ import { createTrack } from '../track/track';
 import { createGround } from '../scene';
 import { createHud, type Gear } from '../hud/hud';
 import { expDecayBlend } from '../utils/math';
+import type { RoomInfo } from '../shared/types';
 import * as THREE from 'three';
 
 function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {
@@ -26,6 +28,7 @@ export class RacingState implements GameState {
   private physicsService: PhysicsService | null = null;
   private renderService: RenderService | null = null;
   private inputService: InputService | null = null;
+  private networkService: NetworkService | null = null;
   private raceController: RaceController | null = null;
   private playerController: PlayerController | null = null;
   private opponentController: OpponentController | null = null;
@@ -36,6 +39,25 @@ export class RacingState implements GameState {
   private gameMode: 'single' | 'multi_host' | 'multi_guest' = 'single';
   private playerArcDistance = 0;
   private onKeyDown: ((e: KeyboardEvent) => void) | null = null;
+
+  // Multiplayer state
+  private playerId: string | null = null;
+  private roomInfo: RoomInfo | null = null;
+  private hostTick = 0;
+  private lastSnapshotTime = 0;
+  private snapshotInterval = 50; // 20 Hz (50ms between snapshots)
+
+  // Guest input state
+  private inputSeq = 0;
+  private lastInputSendTime = 0;
+  private inputSendInterval = 50; // 20 Hz (50ms between input packets)
+
+  // Host: guest vehicle simulation
+  private guestVehicles = new Map<string, {
+    vehicle: any; // Vehicle from PhysicsService
+    lastInput: { throttle: number; brake: number; steer: number };
+    controller: PlayerController;
+  }>();
 
   // Track Three.js objects for cleanup
   private trackMesh: THREE.Group | null = null;
@@ -62,6 +84,14 @@ export class RacingState implements GameState {
 
     this.inputService = await container.resolve('input') as InputService;
     console.log('[RacingState] Input resolved');
+
+    // Resolve network service for multiplayer
+    if (this.gameMode !== 'single') {
+      this.networkService = await container.resolve('network') as NetworkService;
+      this.playerId = context.data?.playerId ?? null;
+      this.roomInfo = context.data?.roomInfo ?? null;
+      console.log('[RacingState] Network resolved, playerId:', this.playerId, 'mode:', this.gameMode);
+    }
 
     console.log('[RacingState] Creating scene...');
     // Setup scene
@@ -157,6 +187,16 @@ export class RacingState implements GameState {
     // Listen for race finish
     context.eventBus.on('race:all-finished', this.handleRaceFinished);
 
+    // Setup multiplayer event listeners
+    if (this.gameMode !== 'single' && this.networkService) {
+      this.setupMultiplayerListeners();
+
+      // Phase 1: Host sends race config to guests
+      if (this.gameMode === 'multi_host') {
+        this.sendRaceConfig(track.lapInfo.length);
+      }
+    }
+
     // Setup ESC key to pause
     this.onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Escape') {
@@ -187,11 +227,31 @@ export class RacingState implements GameState {
       this.opponentController.updateAI(dt, 0, vehicle.getSpeedKmh(), vehicle.rigidBody);
     }
 
+    // Update guest vehicles (Host only)
+    if (this.gameMode === 'multi_host') {
+      this.updateGuestVehicles(dt);
+    }
+
     // Update physics
     this.physicsService.step(dt);
 
     // Update race controller
     this.raceController.update(dt);
+
+    // Multiplayer: Host broadcasts snapshots
+    if (this.gameMode === 'multi_host' && this.networkService) {
+      this.updateHostBroadcast(dt);
+    }
+
+    // Multiplayer: Guest sends input to Host
+    if (this.gameMode === 'multi_guest' && this.networkService) {
+      this.sendGuestInput(input, dt);
+    }
+
+    // Multiplayer: Guest receives and interpolates
+    if (this.gameMode === 'multi_guest' && this.opponentController) {
+      this.opponentController.updateRemoteVisuals(performance.now());
+    }
 
     // Update camera with frame-rate independent smoothing
     this.cameraTarget.copy(vehicle.chassisMesh.position);
@@ -209,6 +269,35 @@ export class RacingState implements GameState {
       const totalCars = this.raceController.getTotalCars();
       const lapState = this.raceController.getPlayerLapState('local');
 
+      // Get network stats for multiplayer
+      let networkStats = null;
+      if (this.gameMode !== 'single' && this.networkService) {
+        const stats = this.networkService.getNetworkStats();
+        if (stats) {
+          // Determine connection state
+          let connectionState: 'connected' | 'connecting' | 'disconnected' = 'connected';
+          const client = this.networkService.getClient();
+          if (client) {
+            // Check if we have active data channels
+            const dataChannels = (client as any).dataChannels;
+            const hasActiveChannels = dataChannels
+              ? Array.from(dataChannels.values() as RTCDataChannel[])
+                  .some((ch) => ch.readyState === 'open')
+              : false;
+
+            if (!hasActiveChannels) {
+              connectionState = 'disconnected';
+            }
+          }
+
+          networkStats = {
+            ping: stats.ping,
+            jitter: stats.jitter,
+            state: connectionState,
+          };
+        }
+      }
+
       this.hud.update({
         speedKmh: vehicle.getSpeedKmh(),
         gear: estimateGear(forwardSpeedKmh, input.throttle, input.brake),
@@ -219,6 +308,7 @@ export class RacingState implements GameState {
         bestLapMs: Number.isNaN(lapState.bestLapTime) ? null : lapState.bestLapTime * 1000,
         position: Math.max(1, Math.min(totalCars, position)),
         totalCars,
+        networkStats,
       });
     }
 
@@ -316,6 +406,14 @@ export class RacingState implements GameState {
       this.opponentController = null;
     }
 
+    // Clean up guest vehicles
+    this.guestVehicles.forEach((guestData, guestId) => {
+      if (this.physicsService) {
+        this.physicsService.destroyVehicle(guestId);
+      }
+    });
+    this.guestVehicles.clear();
+
     this.playerController = null;
     this.physicsService = null;
     this.renderService = null;
@@ -339,4 +437,237 @@ export class RacingState implements GameState {
       this.context.eventBus.emit('game:request-state-change', { from: 'racing', to: 'pause' });
     }
   };
+
+  private updateHostBroadcast(dt: number): void {
+    if (!this.networkService || !this.playerController || !this.raceController) return;
+
+    this.lastSnapshotTime += dt * 1000; // Convert to ms
+
+    if (this.lastSnapshotTime >= this.snapshotInterval) {
+      this.lastSnapshotTime = 0;
+      this.hostTick++;
+
+      const vehicle = this.playerController.getVehicle();
+      const lapState = this.raceController.getPlayerLapState('local');
+      const position = vehicle.rigidBody.translation();
+      const rotation = vehicle.rigidBody.rotation();
+      const velocity = vehicle.rigidBody.linvel();
+
+      // Build players array - start with host
+      const players = [{
+        id: this.playerId!,
+        name: this.roomInfo?.players.find(p => p.id === this.playerId)?.name ?? 'Host',
+        position: [position.x, position.y, position.z] as [number, number, number],
+        rotation: [rotation.x, rotation.y, rotation.z, rotation.w] as [number, number, number, number],
+        velocity: [velocity.x, velocity.y, velocity.z] as [number, number, number],
+        speedKmh: vehicle.getSpeedKmh(),
+        gear: estimateGear(vehicle.getForwardSpeedKmh(), 0, 0),
+        currentLap: lapState.currentLap,
+        lapTimeMs: lapState.currentLapTime * 1000,
+        lastLapMs: Number.isNaN(lapState.lastLapTime) ? null : lapState.lastLapTime * 1000,
+        bestLapMs: Number.isNaN(lapState.bestLapTime) ? null : lapState.bestLapTime * 1000,
+      }];
+
+      // Add guest players
+      this.guestVehicles.forEach((guestData, guestId) => {
+        const guestVehicle = guestData.vehicle;
+        const guestLapState = this.raceController!.getPlayerLapState(guestId);
+        const guestPos = guestVehicle.rigidBody.translation();
+        const guestRot = guestVehicle.rigidBody.rotation();
+        const guestVel = guestVehicle.rigidBody.linvel();
+
+        players.push({
+          id: guestId,
+          name: this.roomInfo?.players.find(p => p.id === guestId)?.name ?? 'Guest',
+          position: [guestPos.x, guestPos.y, guestPos.z] as [number, number, number],
+          rotation: [guestRot.x, guestRot.y, guestRot.z, guestRot.w] as [number, number, number, number],
+          velocity: [guestVel.x, guestVel.y, guestVel.z] as [number, number, number],
+          speedKmh: guestVehicle.getSpeedKmh(),
+          gear: estimateGear(guestVehicle.getForwardSpeedKmh(), 0, 0),
+          currentLap: guestLapState.currentLap,
+          lapTimeMs: guestLapState.currentLapTime * 1000,
+          lastLapMs: Number.isNaN(guestLapState.lastLapTime) ? null : guestLapState.lastLapTime * 1000,
+          bestLapMs: Number.isNaN(guestLapState.bestLapTime) ? null : guestLapState.bestLapTime * 1000,
+        });
+      });
+
+      const snapshot = {
+        type: 'snapshot' as const,
+        tick: this.hostTick,
+        timestamp: performance.now(),
+        players,
+      };
+
+      this.networkService.broadcastToGuests(snapshot);
+    }
+  }
+
+  private setupMultiplayerListeners(): void {
+    if (!this.networkService) return;
+
+    const client = this.networkService.getClient();
+    if (!client) return;
+
+    // Guest receives snapshots from Host
+    if (this.gameMode === 'multi_guest') {
+      const originalOnHostMessage = client['callbacks'].onHostMessage;
+      client['callbacks'].onHostMessage = (message) => {
+        if (message.type === 'snapshot') {
+          this.handleHostSnapshot(message);
+        } else if (message.type === 'race_config') {
+          this.handleRaceConfig(message);
+        }
+        if (originalOnHostMessage) {
+          originalOnHostMessage(message);
+        }
+      };
+    }
+
+    // Host receives input from Guests (for Phase 4)
+    if (this.gameMode === 'multi_host') {
+      const originalOnGuestMessage = client['callbacks'].onGuestMessage;
+      client['callbacks'].onGuestMessage = (guestId, message) => {
+        if (message.type === 'input') {
+          this.handleGuestInput(guestId, message);
+        }
+        if (originalOnGuestMessage) {
+          originalOnGuestMessage(guestId, message);
+        }
+      };
+    }
+  }
+
+  private sendRaceConfig(trackLength: number): void {
+    if (!this.networkService) return;
+
+    const config = {
+      type: 'race_config' as const,
+      totalLaps: this.totalLaps,
+      trackLength,
+    };
+
+    console.log('[RacingState] Host sending race_config:', config);
+    this.networkService.broadcastToGuests(config);
+  }
+
+  private handleRaceConfig(config: any): void {
+    console.log('[RacingState] Guest received race_config:', config);
+    // Update local state with host's config
+    this.totalLaps = config.totalLaps;
+    // Track length is already set by local track creation
+  }
+
+  private handleHostSnapshot(snapshot: any): void {
+    if (!this.opponentController) return;
+
+    const now = performance.now();
+
+    // Add remote players if not exists
+    snapshot.players.forEach((playerSnapshot: any) => {
+      if (playerSnapshot.id !== this.playerId) {
+        // Check if opponent exists, if not add it
+        if (!this.opponentController!.getRemotePlayerMesh(playerSnapshot.id)) {
+          this.opponentController!.addRemotePlayer(
+            playerSnapshot.id,
+            playerSnapshot.name,
+            false
+          );
+        }
+
+        // Update opponent with snapshot
+        this.opponentController!.updateRemotePlayer(playerSnapshot, now);
+      }
+    });
+  }
+
+  private sendGuestInput(input: InputState, dt: number): void {
+    if (!this.networkService) return;
+
+    this.lastInputSendTime += dt * 1000; // Convert to ms
+
+    if (this.lastInputSendTime >= this.inputSendInterval) {
+      this.lastInputSendTime = 0;
+      this.inputSeq++;
+
+      const inputMessage = {
+        type: 'input' as const,
+        seq: this.inputSeq,
+        throttle: input.throttle,
+        brake: input.brake,
+        steer: input.steer,
+        timestamp: performance.now(),
+      };
+
+      this.networkService.sendToHost(inputMessage);
+    }
+  }
+
+  private handleGuestInput(guestId: string, input: any): void {
+    if (!this.physicsService || !this.renderService) return;
+
+    // Create guest vehicle if it doesn't exist
+    if (!this.guestVehicles.has(guestId)) {
+      this.createGuestVehicle(guestId);
+    }
+
+    const guestData = this.guestVehicles.get(guestId);
+    if (guestData) {
+      // Store the latest input
+      guestData.lastInput = {
+        throttle: input.throttle,
+        brake: input.brake,
+        steer: input.steer,
+      };
+    }
+  }
+
+  private createGuestVehicle(guestId: string): void {
+    if (!this.physicsService || !this.renderService || !this.raceController || !this.playerController) return;
+
+    const scene = this.renderService.getScene();
+    const vehicle = this.physicsService.createVehicle(guestId, scene);
+
+    // Track vehicle meshes for cleanup
+    this.vehicleMeshes.push(vehicle.chassisMesh);
+    this.vehicleMeshes.push(...vehicle.wheelMeshes);
+
+    // Get track info from player controller
+    const track = this.playerController['track'];
+    const spawn = track.lapInfo.spawn;
+    const yawSpawn = Math.atan2(-spawn.forward.x, -spawn.forward.z);
+
+    // Spawn slightly offset from host to avoid collision
+    const offsetX = (this.guestVehicles.size + 1) * 3; // 3 meters apart
+    const spawnPos = spawn.position.clone();
+    spawnPos.x += offsetX;
+
+    vehicle.rigidBody.setTranslation(spawnPos, true);
+    vehicle.rigidBody.setRotation(
+      { x: 0, y: Math.sin(yawSpawn / 2), z: 0, w: Math.cos(yawSpawn / 2) },
+      true
+    );
+    vehicle.syncVisuals();
+
+    // Create controller for guest
+    const controller = new PlayerController(vehicle, track);
+
+    // Add to race controller
+    const guestName = this.roomInfo?.players.find(p => p.id === guestId)?.name ?? 'Guest';
+    this.raceController.addPlayer(guestId, guestName, vehicle.rigidBody);
+
+    this.guestVehicles.set(guestId, {
+      vehicle,
+      lastInput: { throttle: 0, brake: 0, steer: 0 },
+      controller,
+    });
+
+    console.log(`[RacingState] Created vehicle for guest ${guestId} (${guestName})`);
+  }
+
+  private updateGuestVehicles(dt: number): void {
+    this.guestVehicles.forEach((guestData) => {
+      // Apply the latest input to the guest vehicle
+      guestData.controller.update(guestData.lastInput, dt);
+    });
+  }
 }

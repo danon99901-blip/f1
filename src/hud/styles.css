@@ -172,6 +172,78 @@
   margin-bottom: 0;
 }
 
+/* ---- Network stats (top-right, below position) ---- */
+.hud-network {
+  top: 6rem;
+  right: 1.25rem;
+  min-width: 7.5rem;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-right: 3px solid rgba(255, 255, 255, 0.2);
+  transition: border-color 0.3s ease;
+}
+.hud-net-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.hud-net-ping {
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.hud-net-unit {
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+}
+/* Color states */
+.hud-net-good {
+  border-right-color: #00ff00;
+}
+.hud-net-good .hud-net-icon {
+  color: #00ff00;
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
+}
+.hud-net-ok {
+  border-right-color: #ffaa00;
+}
+.hud-net-ok .hud-net-icon {
+  color: #ffaa00;
+  text-shadow: 0 0 8px rgba(255, 170, 0, 0.6);
+}
+.hud-net-bad {
+  border-right-color: #ff3333;
+}
+.hud-net-bad .hud-net-icon {
+  color: #ff3333;
+  text-shadow: 0 0 8px rgba(255, 51, 51, 0.6);
+}
+.hud-net-disconnected {
+  border-right-color: #ff0000;
+  animation: netDisconnectPulse 1.5s ease-in-out infinite;
+}
+.hud-net-disconnected .hud-net-icon {
+  color: #ff0000;
+  text-shadow: 0 0 12px rgba(255, 0, 0, 0.8);
+}
+.hud-net-jitter {
+  animation: netJitterShake 0.5s ease-in-out infinite;
+}
+@keyframes netDisconnectPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+@keyframes netJitterShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px); }
+  75% { transform: translateX(1px); }
+}
+
 /* ---- Speedometer (bottom-left) ---- */
 .hud-speed {
   bottom: 1.5rem;

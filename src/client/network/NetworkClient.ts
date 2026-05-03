@@ -32,6 +32,10 @@ export class NetworkClient {
   private callbacks: NetworkClientCallbacks;
   private signalingUrl: string;
 
+  // Reconnection state
+  private lastPlayerName: string | null = null;
+  private lastTotalLaps: number | null = null;
+
   constructor(signalingUrl: string, callbacks: NetworkClientCallbacks) {
     this.signalingUrl = signalingUrl;
     this.callbacks = callbacks;
@@ -83,6 +87,8 @@ export class NetworkClient {
 
   createRoom(playerName: string, totalLaps: number): void {
     this.mode = 'host';
+    this.lastPlayerName = playerName;
+    this.lastTotalLaps = totalLaps;
     this.sendSignaling({
       type: 'create_room',
       playerName,
@@ -93,6 +99,7 @@ export class NetworkClient {
   joinRoom(roomId: string, playerName: string): void {
     this.mode = 'guest';
     this.roomId = roomId;
+    this.lastPlayerName = playerName;
     this.sendSignaling({
       type: 'join_room',
       roomId,
@@ -235,10 +242,19 @@ export class NetworkClient {
         if (this.callbacks.onConnectionStateChange) {
           this.callbacks.onConnectionStateChange('connected');
         }
-      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      } else if (pc.connectionState === 'failed') {
+        console.warn(`[Network] Connection to ${peerId} failed`);
         if (this.callbacks.onConnectionStateChange) {
           this.callbacks.onConnectionStateChange('disconnected');
         }
+        this.callbacks.onError(`Connection to ${peerId} failed`);
+        this.closePeerConnection(peerId);
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn(`[Network] Connection to ${peerId} disconnected`);
+        if (this.callbacks.onConnectionStateChange) {
+          this.callbacks.onConnectionStateChange('disconnected');
+        }
+        this.callbacks.onError(`Connection to ${peerId} lost`);
         this.closePeerConnection(peerId);
       }
     };
@@ -385,6 +401,22 @@ export class NetworkClient {
 
   isHost(): boolean {
     return this.mode === 'host';
+  }
+
+  canReconnect(): boolean {
+    return this.lastPlayerName !== null && (this.mode === 'host' ? this.lastTotalLaps !== null : this.roomId !== null);
+  }
+
+  reconnectToRoom(): void {
+    if (!this.canReconnect()) {
+      throw new Error('Cannot reconnect: missing room state');
+    }
+
+    if (this.mode === 'host' && this.lastPlayerName && this.lastTotalLaps !== null) {
+      this.createRoom(this.lastPlayerName, this.lastTotalLaps);
+    } else if (this.mode === 'guest' && this.roomId && this.lastPlayerName) {
+      this.joinRoom(this.roomId, this.lastPlayerName);
+    }
   }
 
   async getConnectionStats(): Promise<{ roundTripTime?: number } | null> {

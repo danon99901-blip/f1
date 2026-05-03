@@ -196,10 +196,23 @@ export class LobbyState implements GameState {
   };
 
   private handleRaceStart = () => {
-    if (this.context) {
+    if (this.context && this.roomInfo) {
       // Defer state change to avoid race condition during enter()
       setTimeout(() => {
-        if (this.context) {
+        if (this.context && this.roomInfo) {
+          // Determine game mode based on whether we're host or guest
+          const isHost = this.roomInfo.players.some(p => p.isHost && p.id === this.context?.data?.playerId);
+          const gameMode = isHost ? 'multi_host' : 'multi_guest';
+
+          // Update context with multiplayer data
+          this.context.data = {
+            ...this.context.data,
+            gameMode,
+            totalLaps: this.roomInfo.totalLaps,
+            roomInfo: this.roomInfo,
+          };
+
+          console.log('[LobbyState] Transitioning to countdown with gameMode:', gameMode);
           this.context.eventBus.emit('game:request-state-change', { from: 'lobby', to: 'countdown' });
         }
       }, 0);

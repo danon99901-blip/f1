@@ -3,6 +3,13 @@
 
 export type Gear = number | 'N' | 'R';
 
+export interface NetworkStats {
+  ping: number;
+  jitter: number;
+  state: 'connected' | 'connecting' | 'disconnected' | 'reconnecting';
+  reconnectAttempt?: number;
+}
+
 export interface HudState {
   speedKmh: number;
   gear: Gear;
@@ -13,6 +20,7 @@ export interface HudState {
   bestLapMs: number | null;
   position: number;
   totalCars: number;
+  networkStats?: NetworkStats | null;
 }
 
 export interface Hud {
@@ -113,7 +121,25 @@ export function createHud(): Hud {
   speedBarWrap.append(speedBarFill);
   speedPanel.append(speedValue, speedUnit, speedBarWrap);
 
-  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel);
+  // ---- Top-right (below position): network stats ----
+  const netPanel = el('div', 'hud-panel hud-network hud-anim hud-anim-tr');
+  netPanel.style.display = 'none'; // Hidden by default, shown only in multiplayer
+  const netIcon = el('div', 'hud-net-icon');
+  const netPing = el('div', 'hud-net-ping hud-num', '--');
+  const netUnit = el('div', 'hud-net-unit', 'ms');
+  netPanel.append(netIcon, netPing, netUnit);
+
+  // ---- Center overlay: reconnection notification ----
+  const reconnectOverlay = el('div', 'hud-reconnect-overlay');
+  reconnectOverlay.style.display = 'none';
+  const reconnectBox = el('div', 'hud-reconnect-box');
+  const reconnectIcon = el('div', 'hud-reconnect-icon', '⟳');
+  const reconnectText = el('div', 'hud-reconnect-text', 'Reconnecting...');
+  const reconnectAttempt = el('div', 'hud-reconnect-attempt', 'Attempt 1/5');
+  reconnectBox.append(reconnectIcon, reconnectText, reconnectAttempt);
+  reconnectOverlay.append(reconnectBox);
+
+  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, reconnectOverlay);
 
   // Track previous best to flash on improvement.
   let lastBestMs: number | null = null;
@@ -158,6 +184,58 @@ export function createHud(): Hud {
       timeRowBest.classList.add('hud-flash');
     }
     lastBestMs = state.bestLapMs;
+
+    // Network stats (multiplayer only)
+    if (state.networkStats) {
+      netPanel.style.display = '';
+      const { ping, jitter, state: netState, reconnectAttempt } = state.networkStats;
+
+      // Show reconnection overlay if reconnecting
+      if (netState === 'reconnecting') {
+        reconnectOverlay.style.display = 'flex';
+        if (reconnectAttempt !== undefined) {
+          reconnectAttempt.textContent = `Attempt ${reconnectAttempt}/5`;
+        }
+      } else {
+        reconnectOverlay.style.display = 'none';
+      }
+
+      // Update ping display
+      if (Number.isFinite(ping) && ping >= 0) {
+        netPing.textContent = String(Math.round(ping));
+      } else {
+        netPing.textContent = '--';
+      }
+
+      // Color code by ping quality
+      netPanel.classList.remove('hud-net-good', 'hud-net-ok', 'hud-net-bad', 'hud-net-disconnected');
+      if (netState === 'disconnected') {
+        netPanel.classList.add('hud-net-disconnected');
+        netIcon.textContent = '⚠';
+      } else if (netState === 'connecting' || netState === 'reconnecting') {
+        netPanel.classList.add('hud-net-ok');
+        netIcon.textContent = '⟳';
+      } else if (ping < 50) {
+        netPanel.classList.add('hud-net-good');
+        netIcon.textContent = '●';
+      } else if (ping < 100) {
+        netPanel.classList.add('hud-net-ok');
+        netIcon.textContent = '●';
+      } else {
+        netPanel.classList.add('hud-net-bad');
+        netIcon.textContent = '●';
+      }
+
+      // Show jitter warning if high
+      if (jitter > 20) {
+        netPanel.classList.add('hud-net-jitter');
+      } else {
+        netPanel.classList.remove('hud-net-jitter');
+      }
+    } else {
+      netPanel.style.display = 'none';
+      reconnectOverlay.style.display = 'none';
+    }
   }
 
   return { root, update };
