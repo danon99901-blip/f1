@@ -7,38 +7,39 @@ import { LobbyState } from './states/LobbyState';
 import { CountdownState } from './states/CountdownState';
 import { RacingState } from './states/RacingState';
 import { ResultsState } from './states/ResultsState';
+import { RemoteLogger } from './utils/RemoteLogger';
 import './hud/styles.css';
 
 const SIGNALING_URL =
   (import.meta as any).env?.VITE_SIGNALING_URL || 'ws://localhost:3001';
 
 async function main() {
-  console.log('[Main] Application starting...');
-  console.log('[Main] SIGNALING_URL:', SIGNALING_URL);
+  RemoteLogger.log('info', '[Main] Application starting...');
+  RemoteLogger.log('info', '[Main] SIGNALING_URL:', SIGNALING_URL);
 
   const appEl = document.getElementById('app');
   const loadingEl = document.getElementById('loading');
 
-  console.log('[Main] App element:', appEl ? 'found' : 'NOT FOUND');
-  console.log('[Main] Loading element:', loadingEl ? 'found' : 'NOT FOUND');
+  RemoteLogger.log('info', '[Main] App element:', appEl ? 'found' : 'NOT FOUND');
+  RemoteLogger.log('info', '[Main] Loading element:', loadingEl ? 'found' : 'NOT FOUND');
 
   if (!appEl) {
-    console.error('[Main] #app element not found!');
+    RemoteLogger.log('error', '[Main] #app element not found!');
     throw new Error('#app element not found');
   }
 
   try {
-    console.log('[Main] Creating GameSession...');
+    RemoteLogger.log('info', '[Main] Creating GameSession...');
     // Create game session
     const gameSession = new GameSession();
     const eventBus = gameSession.getEventBus();
     const serviceContainer = gameSession.getServiceContainer();
 
-    console.log('[Main] Initializing game session...');
+    RemoteLogger.log('info', '[Main] Initializing game session...');
     // Initialize game session
     loadingEl?.classList.remove('hidden');
     await gameSession.init(appEl, SIGNALING_URL);
-    console.log('[Main] Game session initialized!');
+    RemoteLogger.log('info', '[Main] Game session initialized!');
     loadingEl?.classList.add('hidden');
 
     // Create UI manager

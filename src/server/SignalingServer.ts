@@ -1,6 +1,7 @@
 // Lightweight signaling server for P2P room management
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { createServer } from 'http';
 import type {
   SignalingClientMessage,
   SignalingServerMessage,
@@ -27,9 +28,48 @@ export class SignalingServer {
   private wss: WebSocketServer;
   private players = new Map<string, Player>();
   private rooms = new Map<string, Room>();
+  private httpServer: any;
 
   constructor(port: number) {
-    this.wss = new WebSocketServer({ port });
+    // Create HTTP server for logs endpoint
+    this.httpServer = createServer((req, res) => {
+      // CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/log') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const { logs } = JSON.parse(body);
+            logs.forEach((log: any) => {
+              console.log(`[CLIENT ${log.level.toUpperCase()}] ${log.message}`, log.data || '');
+            });
+            res.writeHead(200);
+            res.end('OK');
+          } catch (error) {
+            console.error('[Server] Failed to parse logs:', error);
+            res.writeHead(400);
+            res.end('Bad Request');
+          }
+        });
+        return;
+      }
+
+      res.writeHead(404);
+      res.end('Not Found');
+    });
+
+    this.httpServer.listen(port);
+    this.wss = new WebSocketServer({ server: this.httpServer });
     console.log(`[Signaling] Server listening on port ${port}`);
 
     this.wss.on('connection', (ws) => {
