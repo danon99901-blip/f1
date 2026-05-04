@@ -221,10 +221,12 @@ export class NetworkClient {
         break;
 
       case 'player_joined':
+        console.log(`[Network] player_joined: ${message.playerId} (${message.playerName}), my mode=${this.mode}`);
         this.callbacks.onPlayerJoined(message.playerId, message.playerName);
 
         // If we're host, accept connection from new guest
         if (this.mode === 'host') {
+          console.log(`[Network] Host creating peer connection for new guest ${message.playerId}`);
           this.createPeerConnection(message.playerId, false);
         }
         break;

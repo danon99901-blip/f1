@@ -319,7 +319,7 @@ export class SignalingServer {
   }
 
   private handleSignaling(
-    _player: Player,
+    player: Player,
     message:
       | { type: 'signaling_offer'; targetId: string; offer: RTCSessionDescriptionInit }
       | { type: 'signaling_answer'; targetId: string; answer: RTCSessionDescriptionInit }
@@ -327,12 +327,20 @@ export class SignalingServer {
   ): void {
     const target = this.players.get(message.targetId);
     if (!target) {
-      console.warn(`[Signaling] Target player ${message.targetId} not found`);
+      console.warn(`[Signaling] Target player ${message.targetId} not found (from ${player.id})`);
       return;
     }
 
-    // Forward signaling message to target
-    this.send(target, message as SignalingServerMessage);
+    // CRITICAL: Rewrite targetId to the SENDER's id before forwarding.
+    //
+    // The client uses `targetId` to look up its peerConnection in `this.peerConnections`.
+    // Each side stores connections keyed by the *remote* peer's id. So when forwarding to
+    // `target`, the field they care about is "who is this from?" — which is `player.id`.
+    // Without this rewrite, the recipient sees their own id as targetId and fails to find
+    // the connection, dropping every offer/answer/ICE candidate. The original code passed
+    // the message through unchanged, which is why peerConnections never completed.
+    const forwarded = { ...message, targetId: player.id } as SignalingServerMessage;
+    this.send(target, forwarded);
   }
 
   private handleDisconnect(player: Player): void {
