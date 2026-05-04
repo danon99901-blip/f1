@@ -87,6 +87,8 @@ export class RacingState implements GameState {
   private _processedSnapshotCount = 0;
   private _lastSnapshotTimestamp = 0;
   private _guestUpdateTick = 0;
+  private _handleInputCount = 0;
+  private _guestEventCount = 0;
 
   // Debug overlay for browser verification
   private debugOverlay: MultiplayerDebugOverlay | null = null;
@@ -802,6 +804,12 @@ export class RacingState implements GameState {
   private handleNetworkGuestMessage = (data: { guestId: string; message: any }) => {
     const { guestId, message } = data;
 
+    // Diagnostic: log first 5 messages and every 100th input to confirm event reaches RacingState
+    this._guestEventCount = (this._guestEventCount ?? 0) + 1;
+    if (this._guestEventCount <= 5 || (message.type === 'input' && this._guestEventCount % 100 === 0)) {
+      console.log(`[RacingState] handleNetworkGuestMessage #${this._guestEventCount} type=${message.type} from=${guestId}`);
+    }
+
     if (message.type === 'input') {
       this.handleGuestInput(guestId, message);
     } else if (message.type === 'initial_position') {
@@ -1038,6 +1046,19 @@ export class RacingState implements GameState {
   private handleGuestInput(guestId: string, input: any): void {
     if (!this.physicsService || !this.renderService) return;
 
+    // Diagnostic: every 60th input log what we received and whether vehicle map has it
+    this._handleInputCount = (this._handleInputCount ?? 0) + 1;
+    if (this._handleInputCount === 1 || this._handleInputCount % 60 === 0) {
+      console.log(
+        `[RacingState] HOST handleGuestInput #${this._handleInputCount} from ${guestId} ` +
+        `t=${input?.throttle?.toFixed?.(2) ?? input?.throttle} ` +
+        `b=${input?.brake?.toFixed?.(2) ?? input?.brake} ` +
+        `s=${input?.steer?.toFixed?.(2) ?? input?.steer} ` +
+        `vehicleExists=${this.guestVehicles.has(guestId)} ` +
+        `mapKeys=[${Array.from(this.guestVehicles.keys()).join(',')}]`
+      );
+    }
+
     // Defensive lazy-create: vehicles are normally created eagerly in enter() for every
     // player listed in roomInfo. But if a guest's player_joined arrives mid-race or the
     // initial roomInfo was incomplete, create on first input as a fallback. This used to
@@ -1057,6 +1078,8 @@ export class RacingState implements GameState {
         steer: input.steer,
       };
       guestData.lastInputAt = performance.now();
+    } else {
+      console.error(`[RacingState] handleGuestInput: guestData STILL missing for ${guestId} after lazy-create attempt!`);
     }
   }
 
