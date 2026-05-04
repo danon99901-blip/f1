@@ -86,6 +86,7 @@ export class RacingState implements GameState {
   private _bufferLogCount = 0;
   private _processedSnapshotCount = 0;
   private _lastSnapshotTimestamp = 0;
+  private _guestUpdateTick = 0;
 
   // Debug overlay for browser verification
   private debugOverlay: MultiplayerDebugOverlay | null = null;
@@ -1129,6 +1130,22 @@ export class RacingState implements GameState {
         // Zero the cached input so we don't log on every frame
         console.warn(`[RacingState] Guest ${guestId} input stale (>${STALE_INPUT_MS}ms) — zeroing throttle/brake/steer`);
         guestData.lastInput = { ...ZEROED_INPUT };
+      }
+
+      // Diagnostic: every ~1s log what we're applying to this guest's vehicle and
+      // whether its body is actually moving. If position stays constant despite
+      // non-zero throttle, the body is stuck (frozen, sleeping, or no ground contact).
+      this._guestUpdateTick = (this._guestUpdateTick ?? 0) + 1;
+      if (this._guestUpdateTick % 60 === 0) {
+        const pos = guestData.vehicle.rigidBody.translation();
+        const vel = guestData.vehicle.rigidBody.linvel();
+        const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        console.log(
+          `[RacingState] HOST applying guest ${guestId} input ` +
+          `t=${inputToApply.throttle.toFixed(2)} b=${inputToApply.brake.toFixed(2)} s=${inputToApply.steer.toFixed(2)} ` +
+          `pos=(${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}) speed=${speed.toFixed(2)}m/s ` +
+          `stale=${isStale} ageMs=${Math.round(now - guestData.lastInputAt)}`
+        );
       }
 
       guestData.controller.update(inputToApply, dt);
