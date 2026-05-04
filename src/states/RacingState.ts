@@ -58,9 +58,13 @@ export class RacingState implements GameState {
   private clientPrediction: ClientPrediction | null = null;
 
   // Host: guest vehicle simulation
+  // `lastInputAt` is the wall-clock timestamp (ms) of the most recent input received from
+  // this guest. updateGuestVehicles() uses it to zero out stale inputs so a disconnected
+  // guest's car doesn't drive forever on its last recorded throttle/steer.
   private guestVehicles = new Map<string, {
     vehicle: any; // Vehicle from PhysicsService
     lastInput: { throttle: number; brake: number; steer: number };
+    lastInputAt: number;
     controller: PlayerController;
   }>();
 
@@ -269,6 +273,21 @@ export class RacingState implements GameState {
 
       // Phase 1: Host sends race config to guests
       if (this.gameMode === 'multi_host') {
+        // Eagerly spawn a Rapier vehicle for every remote player in the room. Previously
+        // guest vehicles were created lazily on the first `input` message — but inputs
+        // only flow once the WebRTC data channel opens, which can take several seconds
+        // (or fail silently behind NAT). Creating eagerly here means the host's snapshot
+        // broadcasts already include all players from frame 1, and remote cars appear in
+        // the host's scene immediately rather than on first input arrival.
+        if (this.roomInfo) {
+          this.roomInfo.players.forEach(player => {
+            if (player.id !== this.playerId && !this.guestVehicles.has(player.id)) {
+              console.log(`[RacingState] Eagerly creating vehicle for guest ${player.id} (${player.name})`);
+              this.createGuestVehicle(player.id);
+            }
+          });
+        }
+
         this.sendRaceConfig(track.lapInfo.length);
         // Send initial position to guests
         this.sendInitialPosition();
@@ -669,6 +688,14 @@ export class RacingState implements GameState {
 
       const snapshot = this.createSnapshot();
       this.netDiag.log('Host sending snapshot', { tick: this.hostTick, playerCount: snapshot.players.length });
+
+      // Diagnostic: log every 20th snapshot (~once per second at 20Hz) so we can
+      // confirm the host loop is actually running and producing snapshots.
+      if (this.hostTick % 20 === 0) {
+        console.log(`[RacingState] HOST broadcast tick=${this.hostTick} players=${snapshot.players.length}`,
+          snapshot.players.map(p => `${p.name}(${p.position[0].toFixed(1)},${p.position[2].toFixed(1)})`).join(' | '));
+      }
+
       this.networkService.broadcastToGuests(snapshot);
     }
   }
@@ -880,6 +907,12 @@ export class RacingState implements GameState {
 
     this.netDiag.log('Guest received snapshot', { tick: snapshot.tick, playerCount: snapshot.players.length });
 
+    // Diagnostic: log every 20th snapshot to confirm guest is receiving
+    if (snapshot.tick % 20 === 0) {
+      console.log(`[RacingState] GUEST received tick=${snapshot.tick} players=${snapshot.players.length}`,
+        snapshot.players.map((p: any) => `${p.name}(${p.position[0].toFixed(1)},${p.position[2].toFixed(1)})`).join(' | '));
+    }
+
     // If OpponentController not ready yet, buffer the snapshot
     if (!this.opponentController) {
       this.pendingSnapshots.push({ snapshot, timestamp: now });
@@ -999,19 +1032,25 @@ export class RacingState implements GameState {
   private handleGuestInput(guestId: string, input: any): void {
     if (!this.physicsService || !this.renderService) return;
 
-    // Create guest vehicle if it doesn't exist
+    // Defensive lazy-create: vehicles are normally created eagerly in enter() for every
+    // player listed in roomInfo. But if a guest's player_joined arrives mid-race or the
+    // initial roomInfo was incomplete, create on first input as a fallback. This used to
+    // be the primary code path and caused the "ghost car" bug — see enter() for the eager
+    // creation that fixes it.
     if (!this.guestVehicles.has(guestId)) {
+      console.warn(`[RacingState] handleGuestInput: vehicle for ${guestId} not found, lazy-creating (this should normally happen in enter())`);
       this.createGuestVehicle(guestId);
     }
 
     const guestData = this.guestVehicles.get(guestId);
     if (guestData) {
-      // Store the latest input
+      // Store the latest input + timestamp for stale detection
       guestData.lastInput = {
         throttle: input.throttle,
         brake: input.brake,
         steer: input.steer,
       };
+      guestData.lastInputAt = performance.now();
     }
   }
 
@@ -1061,6 +1100,7 @@ export class RacingState implements GameState {
     this.guestVehicles.set(guestId, {
       vehicle,
       lastInput: { throttle: 0, brake: 0, steer: 0 },
+      lastInputAt: performance.now(),
       controller,
     });
 
@@ -1068,9 +1108,25 @@ export class RacingState implements GameState {
   }
 
   private updateGuestVehicles(dt: number): void {
-    this.guestVehicles.forEach((guestData) => {
-      // Apply the latest input to the guest vehicle
-      guestData.controller.update(guestData.lastInput, dt);
+    // If we haven't heard from a guest for this long, assume their connection is dead
+    // (or temporarily stalled) and stop driving their car with stale inputs. Without
+    // this, a disconnected guest's car keeps accelerating with whatever throttle/steer
+    // it last sent — flying off the track and confusing the host's snapshots.
+    const STALE_INPUT_MS = 500;
+    const ZEROED_INPUT = { throttle: 0, brake: 0, steer: 0 };
+    const now = performance.now();
+
+    this.guestVehicles.forEach((guestData, guestId) => {
+      const isStale = (now - guestData.lastInputAt) > STALE_INPUT_MS;
+      const inputToApply = isStale ? ZEROED_INPUT : guestData.lastInput;
+
+      if (isStale && (guestData.lastInput.throttle !== 0 || guestData.lastInput.brake !== 0 || guestData.lastInput.steer !== 0)) {
+        // Zero the cached input so we don't log on every frame
+        console.warn(`[RacingState] Guest ${guestId} input stale (>${STALE_INPUT_MS}ms) — zeroing throttle/brake/steer`);
+        guestData.lastInput = { ...ZEROED_INPUT };
+      }
+
+      guestData.controller.update(inputToApply, dt);
 
       // CRITICAL: Sync visual mesh with physics body after update
       guestData.vehicle.syncVisuals();

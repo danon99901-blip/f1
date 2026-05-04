@@ -46,7 +46,11 @@ export class NetworkService implements Service {
       },
 
       onRoomJoined: (roomInfo, playerId) => {
-        this.config.eventBus.emit('network:room-joined', { roomId: roomInfo.roomId, playerId });
+        // CRITICAL: Pass full roomInfo (including all players) so the guest's LobbyState
+        // can render the existing players and later seed RacingState with the correct
+        // opponent list. Previously only roomId was passed, leaving the guest blind to
+        // who else is in the room — which is why remote cars never appeared in-race.
+        this.config.eventBus.emit('network:room-joined', { roomId: roomInfo.roomId, playerId, roomInfo });
       },
 
       onPlayerJoined: (playerId, playerName) => {

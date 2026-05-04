@@ -1,6 +1,7 @@
 // Event bus for decoupled communication between components
 
 import type { NetworkErrorType } from '../client/network/NetworkClient';
+import type { RoomInfo } from '../shared/types';
 
 type EventHandler<T = any> = (data: T) => void;
 
@@ -14,7 +15,7 @@ export interface GameEvents {
   'network:disconnected': { reason?: string };
   'network:reconnecting': { attempt: number };
   'network:room-created': { roomId: string; playerId: string };
-  'network:room-joined': { roomId: string; playerId: string };
+  'network:room-joined': { roomId: string; playerId: string; roomInfo?: RoomInfo };
   'network:player-joined': { playerId: string; playerName: string };
   'network:player-left': { playerId: string };
   'network:player-color-changed': { playerId: string; color: number };

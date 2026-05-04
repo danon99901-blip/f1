@@ -260,12 +260,48 @@ export class NetworkClient {
     }
   }
 
+  /**
+   * Build the ICE server list for RTCPeerConnection.
+   *
+   * Always includes Google's public STUN servers. Additionally, if a TURN server is
+   * configured via Vite env vars, it is appended. TURN is REQUIRED for users behind
+   * symmetric NAT (common on mobile carriers, corporate networks, dorms) — without it,
+   * peers will silently fail to connect after a ~30s ICE timeout.
+   *
+   * Configure in `.env.local` (or platform env vars):
+   *   VITE_TURN_URL=turn:turn.example.com:3478
+   *   VITE_TURN_USERNAME=user
+   *   VITE_TURN_CREDENTIAL=password
+   *
+   * Free options: Metered (metered.ca), Xirsys, or self-hosted coturn.
+   */
+  private static buildIceServers(): RTCIceServer[] {
+    const servers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ];
+
+    const turnUrl = import.meta.env.VITE_TURN_URL as string | undefined;
+    const turnUsername = import.meta.env.VITE_TURN_USERNAME as string | undefined;
+    const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
+
+    if (turnUrl && turnUsername && turnCredential) {
+      servers.push({
+        urls: turnUrl,
+        username: turnUsername,
+        credential: turnCredential,
+      });
+      console.log('[Network] TURN server configured:', turnUrl);
+    } else {
+      console.warn('[Network] No TURN server configured — peers behind symmetric NAT may fail to connect. Set VITE_TURN_URL/USERNAME/CREDENTIAL.');
+    }
+
+    return servers;
+  }
+
   private async createPeerConnection(peerId: string, initiator: boolean): Promise<void> {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
+      iceServers: NetworkClient.buildIceServers(),
       iceCandidatePoolSize: 10,
     });
 
@@ -281,8 +317,32 @@ export class NetworkClient {
       }
     };
 
+    // ICE state transitions are the single most useful signal for diagnosing "guests
+    // can't see each other" bugs. We log every transition with timing so you can tell
+    // a healthy `new → checking → connected` sequence apart from the silent
+    // `new → checking → failed` that happens behind symmetric NAT without a TURN
+    // server. If you see `failed` here, configure VITE_TURN_URL.
+    const iceStartTime = performance.now();
+    let lastIceState: RTCIceConnectionState | null = null;
     pc.oniceconnectionstatechange = () => {
-      console.log(`[Network] ICE connection to ${peerId}: ${pc.iceConnectionState}`);
+      const state = pc.iceConnectionState;
+      const elapsed = Math.round(performance.now() - iceStartTime);
+      console.log(`[Network] ICE to ${peerId}: ${lastIceState ?? 'null'} → ${state} (+${elapsed}ms)`);
+      lastIceState = state;
+
+      if (state === 'failed') {
+        console.error(
+          `[Network] ICE FAILED to ${peerId} after ${elapsed}ms. ` +
+          `Likely cause: symmetric NAT with no TURN server. ` +
+          `Set VITE_TURN_URL/USERNAME/CREDENTIAL in .env.local.`
+        );
+      } else if (state === 'disconnected') {
+        console.warn(`[Network] ICE disconnected to ${peerId} (+${elapsed}ms) — may recover automatically.`);
+      }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log(`[Network] ICE gathering to ${peerId}: ${pc.iceGatheringState}`);
     };
 
     pc.onconnectionstatechange = () => {

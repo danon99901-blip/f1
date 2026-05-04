@@ -145,7 +145,7 @@ export class LobbyState implements GameState {
     }, 0);
   };
 
-  private handleRoomJoined = (data: { roomId: string; playerId: string; roomInfo?: any }) => {
+  private handleRoomJoined = (data: { roomId: string; playerId: string; roomInfo?: RoomInfo }) => {
     console.log('[LobbyState] Room joined event:', data);
 
     // Defer UI updates to avoid race condition during state transition
@@ -155,11 +155,15 @@ export class LobbyState implements GameState {
         this.context.data = { ...this.context.data, playerId: data.playerId };
       }
 
-      // Update room info from network event
+      // Update room info from network event. The signaling server sends the full
+      // player list with the room_joined message; NetworkService now forwards it
+      // intact via data.roomInfo. The fallback below only fires if the event was
+      // emitted without roomInfo (legacy code path) and ensures we don't crash —
+      // but note that without the full player list, opponents won't render.
       if (data.roomInfo) {
         this.roomInfo = data.roomInfo;
       } else if (!this.roomInfo) {
-        // Create initial room info if not exists (guest joining)
+        console.warn('[LobbyState] room-joined event missing roomInfo; falling back to single-player room shape. Remote players will be missing.');
         const playerName = this.context?.data?.playerName || 'Player';
         this.roomInfo = {
           roomId: data.roomId,

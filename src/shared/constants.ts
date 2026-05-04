@@ -61,7 +61,12 @@ export const DRAG_COEFF = 1.1;
 // Network timing
 export const TICK_RATE = 60;           // Physics simulation rate (Hz)
 export const SNAPSHOT_RATE = 20;       // Network snapshot broadcast rate (Hz)
-export const SNAPSHOT_BUFFER_SIZE = 3; // Number of snapshots to buffer for interpolation
+// Number of snapshots to buffer for interpolation. At SNAPSHOT_RATE=20Hz with a 100ms
+// render delay, the interpolator typically consumes 2 snapshots per frame; a buffer of
+// 3 collapses to extrapolation almost immediately when packets are reordered or jitter
+// spikes. 10 gives ~500ms of history at 20Hz — enough cushion for typical jitter without
+// adding noticeable extra latency (render delay is unchanged).
+export const SNAPSHOT_BUFFER_SIZE = 10;
 export const INPUT_BUFFER_SIZE = 60;   // Number of inputs to keep for prediction (1 second)
 
 // Game settings
