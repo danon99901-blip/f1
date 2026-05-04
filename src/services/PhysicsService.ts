@@ -9,6 +9,7 @@ import type { Service } from '../core/ServiceContainer';
 export class PhysicsService implements Service {
   private world: RAPIER.World | null = null;
   private vehicles = new Map<string, Vehicle>();
+  private physicsAccumulator = 0;
 
   async init(): Promise<void> {
     this.world = await initPhysics();
@@ -28,8 +29,24 @@ export class PhysicsService implements Service {
       throw new Error('PhysicsService not initialized');
     }
 
-    this.world.timestep = dt;
-    this.world.step();
+    // Fixed-timestep with accumulator. Previously we passed the real frame dt
+    // straight into Rapier — which meant a 33ms render frame did roughly
+    // double the broad-phase + constraint-solver work of a 16ms frame. That
+    // turned a small fps dip into a cascade: GPU stalls → bigger dt → physics
+    // takes longer → GPU stalls more. With a fixed 1/60 step the world always
+    // advances in predictable chunks; the accumulator bridges between render
+    // frames. We cap the accumulator so that a long stall (tab in background,
+    // alt-tab) doesn't trigger a death spiral of catch-up steps when the
+    // user returns.
+    const FIXED_DT = 1 / 60;
+    const MAX_ACCUMULATOR = FIXED_DT * 5; // never run more than 5 steps in a row
+    this.physicsAccumulator = Math.min(this.physicsAccumulator + dt, MAX_ACCUMULATOR);
+
+    this.world.timestep = FIXED_DT;
+    while (this.physicsAccumulator >= FIXED_DT) {
+      this.world.step();
+      this.physicsAccumulator -= FIXED_DT;
+    }
 
     // Sync vehicle visuals
     this.vehicles.forEach((vehicle) => {

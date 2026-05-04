@@ -361,7 +361,11 @@ function buildBarriers(
       );
       mesh.position.set(center.x, SURFACE_Y + halfHeight, center.z);
       mesh.rotation.y = yaw;
-      mesh.castShadow = true;
+      // Barriers do not cast shadows. ~170 of them per track were each adding
+      // a draw to the sun's shadow render, with negligible visual payoff (the
+      // shadow falls onto the asphalt parallel to the wall, mostly hidden by
+      // the wall itself). receiveShadow stays on so cars/objects shadow them.
+      mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
 

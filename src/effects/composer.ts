@@ -51,15 +51,23 @@ export function createComposer(
 ): ComposerBundle {
   // multisampling: 0 — SMAA handles AA; renderer.toneMapping (ACES, set in
   // scene.ts) is respected by the composer's output pass.
+  //
+  // frameBufferType: UnsignedByteType is intentional. HalfFloatType doubles
+  // framebuffer bandwidth on integrated GPUs (common laptops) and was the
+  // single biggest cost on a 4-pass postprocessing chain at 1080p. Tone
+  // mapping is still applied via OutputEffect — visual quality difference is
+  // negligible at typical screen brightness, with measurable fps gain.
   const composer = new EffectComposer(renderer, {
     multisampling: 0,
-    frameBufferType: THREE.HalfFloatType,
+    frameBufferType: THREE.UnsignedByteType,
   });
 
   composer.addPass(new RenderPass(scene, camera));
 
-  // 1. SMAA — MEDIUM is a good default; HIGH bumps quality with ~negligible cost.
-  const smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
+  // 1. SMAA — LOW preset. HIGH does 3 internal samples per pixel; LOW does 1.
+  // At laptop resolutions the visual difference is hard to spot but the GPU
+  // cost halves. Promote back to MEDIUM/HIGH if we ever need to support 4K.
+  const smaa = new SMAAEffect({ preset: SMAAPreset.LOW });
 
   // 2. Bloom — soft glow on bright pixels (sun reflections, emissives).
   const bloom = new BloomEffect({
