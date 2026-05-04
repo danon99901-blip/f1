@@ -556,6 +556,149 @@ describe('RacingState - Multiplayer Synchronization', () => {
         steer: 0,
       });
     });
+
+    it('should update lastInput when receiving vehicle_input network message', () => {
+      const mockVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+      } as any;
+
+      const mockController = { update: vi.fn() } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      guestVehicles.set('guest-123', {
+        vehicle: mockVehicle,
+        controller: mockController,
+        lastInput: { throttle: 0, brake: 0, steer: 0 },
+      });
+
+      // Initial state
+      expect(guestVehicles.get('guest-123').lastInput).toEqual({
+        throttle: 0,
+        brake: 0,
+        steer: 0,
+      });
+
+      // Simulate receiving first vehicle_input message
+      const handleGuestInput = (racingState as any).handleGuestInput.bind(racingState);
+      handleGuestInput('guest-123', {
+        seq: 1,
+        throttle: 0.5,
+        brake: 0.2,
+        steer: 0.1,
+      });
+
+      // Verify lastInput was updated
+      expect(guestVehicles.get('guest-123').lastInput).toEqual({
+        throttle: 0.5,
+        brake: 0.2,
+        steer: 0.1,
+      });
+
+      // Simulate receiving second vehicle_input message with different values
+      handleGuestInput('guest-123', {
+        seq: 2,
+        throttle: 0.9,
+        brake: 0,
+        steer: -0.4,
+      });
+
+      // Verify lastInput was updated again
+      expect(guestVehicles.get('guest-123').lastInput).toEqual({
+        throttle: 0.9,
+        brake: 0,
+        steer: -0.4,
+      });
+    });
+
+    it('should update lastInput for multiple guests independently', () => {
+      const createMockVehicle = () => ({
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+      }) as any;
+
+      const mockController = { update: vi.fn() } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      guestVehicles.set('guest-A', {
+        vehicle: createMockVehicle(),
+        controller: mockController,
+        lastInput: { throttle: 0, brake: 0, steer: 0 },
+      });
+      guestVehicles.set('guest-B', {
+        vehicle: createMockVehicle(),
+        controller: mockController,
+        lastInput: { throttle: 0, brake: 0, steer: 0 },
+      });
+
+      const handleGuestInput = (racingState as any).handleGuestInput.bind(racingState);
+
+      // Update guest-A
+      handleGuestInput('guest-A', {
+        seq: 1,
+        throttle: 0.7,
+        brake: 0,
+        steer: 0.3,
+      });
+
+      // Update guest-B
+      handleGuestInput('guest-B', {
+        seq: 1,
+        throttle: 0.4,
+        brake: 0.5,
+        steer: -0.2,
+      });
+
+      // Verify each guest has independent lastInput
+      expect(guestVehicles.get('guest-A').lastInput).toEqual({
+        throttle: 0.7,
+        brake: 0,
+        steer: 0.3,
+      });
+      expect(guestVehicles.get('guest-B').lastInput).toEqual({
+        throttle: 0.4,
+        brake: 0.5,
+        steer: -0.2,
+      });
+
+      // Update guest-A again
+      handleGuestInput('guest-A', {
+        seq: 2,
+        throttle: 1.0,
+        brake: 0,
+        steer: 0,
+      });
+
+      // Verify guest-A updated but guest-B unchanged
+      expect(guestVehicles.get('guest-A').lastInput).toEqual({
+        throttle: 1.0,
+        brake: 0,
+        steer: 0,
+      });
+      expect(guestVehicles.get('guest-B').lastInput).toEqual({
+        throttle: 0.4,
+        brake: 0.5,
+        steer: -0.2,
+      });
+    });
   });
 
   describe('Integration: Full Synchronization Flow', () => {
