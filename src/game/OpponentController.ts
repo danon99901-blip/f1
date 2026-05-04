@@ -53,10 +53,15 @@ export class OpponentController {
       throw new Error('OpponentController not in remote mode');
     }
 
-    if (this.remoteOpponents.has(id)) return;
+    if (this.remoteOpponents.has(id)) {
+      console.warn(`[OpponentController] Remote player ${id} already exists, skipping`);
+      return;
+    }
 
+    console.log(`[OpponentController] Creating remote player ${id} (${name}) with color 0x${carColor.toString(16)}`);
     const mesh = createCarModel(carColor);
     this.scene.add(mesh);
+    console.log(`[OpponentController] Mesh added to scene at position:`, mesh.position);
 
     const nameTag = new PlayerNameTag(
       name,
@@ -72,6 +77,7 @@ export class OpponentController {
       interpolator: new Interpolator(100),
       nameTag,
     });
+    console.log(`[OpponentController] Remote player ${id} added successfully. Total opponents: ${this.remoteOpponents.size}`);
   }
 
   /**
@@ -119,6 +125,8 @@ export class OpponentController {
     const opponent = this.remoteOpponents.get(snapshot.id);
     if (opponent) {
       opponent.interpolator.addSnapshot(snapshot, timestamp);
+    } else {
+      console.warn(`[OpponentController] Received snapshot for unknown player ${snapshot.id}`);
     }
   }
 
@@ -146,6 +154,7 @@ export class OpponentController {
 
   updateRemoteVisuals(currentTime: number): THREE.Group | null {
     let localPlayerMesh: THREE.Group | null = null;
+    let updatedCount = 0;
 
     this.remoteOpponents.forEach((opponent) => {
       const interpolated = opponent.interpolator.interpolate(currentTime);
@@ -153,8 +162,18 @@ export class OpponentController {
         opponent.mesh.position.copy(interpolated.position);
         opponent.mesh.quaternion.copy(interpolated.rotation);
         opponent.nameTag.updatePosition(interpolated.position);
+        updatedCount++;
+      } else {
+        // Log when interpolation fails
+        if (!opponent.interpolator.hasData()) {
+          console.warn(`[OpponentController] No interpolation data for ${opponent.id} (${opponent.name})`);
+        }
       }
     });
+
+    if (updatedCount === 0 && this.remoteOpponents.size > 0) {
+      console.warn(`[OpponentController] No opponents updated. Total opponents: ${this.remoteOpponents.size}`);
+    }
 
     return localPlayerMesh;
   }

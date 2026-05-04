@@ -590,6 +590,7 @@ export class RacingState implements GameState {
     console.log(`[RacingState] roomInfo has ${this.roomInfo.players.length} players:`,
       this.roomInfo.players.map(p => `${p.id}(${p.name},0x${p.carColor.toString(16)})`).join(', '));
     console.log(`[RacingState] My playerId: ${this.playerId}`);
+    console.log(`[RacingState] Game mode: ${this.gameMode}`);
 
     // Get base spawn position and rotation from track
     const spawn = this.track.lapInfo.spawn;
@@ -604,6 +605,8 @@ export class RacingState implements GameState {
     // Guest: Create visual meshes for all other players (host)
     // Host: Guest vehicles already have physics meshes, no need for OpponentController meshes
     if (this.gameMode === 'multi_guest') {
+      console.log(`[RacingState] Guest mode: Creating visual meshes for other players`);
+      let createdCount = 0;
       this.roomInfo.players.forEach(player => {
         if (player.id !== this.playerId) {
           console.log(`[RacingState] Creating opponent mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
@@ -613,10 +616,12 @@ export class RacingState implements GameState {
           const opponentSpawnPos = this.getOpponentSpawnPosition(player.id, baseSpawnPos);
           console.log(`[RacingState] Setting opponent ${player.id} initial position:`, opponentSpawnPos);
           this.opponentController!.setInitialPosition(player.id, opponentSpawnPos, baseSpawnRot);
+          createdCount++;
         } else {
           console.log(`[RacingState] Skipping self: ${player.id}`);
         }
       });
+      console.log(`[RacingState] Guest created ${createdCount} opponent meshes`);
     } else {
       console.log(`[RacingState] Host mode: Guest vehicles use physics meshes, skipping OpponentController mesh creation`);
     }
@@ -629,6 +634,7 @@ export class RacingState implements GameState {
 
     // Process any buffered snapshots that arrived before opponent initialization (Guest only)
     if (this.gameMode === 'multi_guest') {
+      console.log(`[RacingState] Guest has ${this.pendingSnapshots.length} pending snapshots to flush`);
       this.flushPendingSnapshots();
       console.log('[RacingState] Guest flushed pending snapshots after opponent initialization');
     }
@@ -1173,11 +1179,12 @@ export class RacingState implements GameState {
 
     if (this.gameMode === 'multi_host') {
       // Host is on the left (-1.5), so opponents (guests) spawn on the right
-      // Find the index of this opponent in the room
-      const opponentIndex = this.roomInfo?.players.findIndex(p => p.id === opponentId) ?? 0;
-      const offset = 1.5 + (opponentIndex * 2); // Guest at +1.5, +3.5, +5.5, etc.
+      // Get only guest players (exclude host) and find index among them
+      const guestPlayers = this.roomInfo?.players.filter(p => p.id !== this.playerId) ?? [];
+      const guestIndex = guestPlayers.findIndex(p => p.id === opponentId);
+      const offset = 1.5 + (guestIndex * 2); // First guest at +1.5, second at +3.5, etc.
       spawnPos.x += offset;
-      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, offset=+${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
+      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, guestIndex=${guestIndex}, offset=+${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
     } else if (this.gameMode === 'multi_guest') {
       // Guest is on the right (+1.5), so opponent (host) spawns on the left
       const offset = -1.5; // Host at -1.5 (base position minus 1.5)
