@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Interpolator } from './Interpolator';
 import type { PlayerSnapshot } from '../../shared/protocol';
-import * as THREE from 'three';
 
 describe('Interpolator', () => {
   let interpolator: Interpolator;
@@ -11,7 +10,7 @@ describe('Interpolator', () => {
   });
 
   const createSnapshot = (
-    timestamp: number,
+    time: number,
     position: [number, number, number],
     rotation: [number, number, number, number] = [0, 0, 0, 1],
     velocity: [number, number, number] = [0, 0, 0]
