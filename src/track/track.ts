@@ -334,6 +334,36 @@ function buildBarriers(
   const halfHeight = BARRIER_HEIGHT * 0.5;
   const lateral = TRACK_HALF_WIDTH + KERB_WIDTH + BARRIER_OFFSET;
 
+  // Pre-count how many barrier segments we'll generate so we can allocate the
+  // InstancedMesh with the right capacity. Each iteration produces 2 segments
+  // (left + right), and we step through frames with BARRIER_SAMPLE_STEP.
+  const segmentsPerSide = Math.ceil(frames.length / BARRIER_SAMPLE_STEP);
+  const totalInstances = segmentsPerSide * 2;
+
+  // Single InstancedMesh for ALL ~170 barriers instead of one Mesh per segment.
+  // Was: 170 individual draw calls every frame (one per Mesh).
+  // Now: 1 draw call total. Three.js doesn't auto-batch; instancing is the
+  // only way to collapse identical-material meshes into a single GPU submission.
+  //
+  // Each instance shares the same unit-cube geometry (1×1×1 box). We use the
+  // per-instance Matrix4 to translate, rotate, and scale (length × height ×
+  // thickness) it into the right segment. This is mathematically identical to
+  // what the old code did with a fresh BoxGeometry per segment, but cheaper.
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const instancedMesh = new THREE.InstancedMesh(unitBox, material, totalInstances);
+  instancedMesh.castShadow = false;
+  instancedMesh.receiveShadow = true;
+  // We never animate the matrices after init, so disable per-frame matrix
+  // upload to the GPU.
+  instancedMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+  const tmpMatrix = new THREE.Matrix4();
+  const tmpPos = new THREE.Vector3();
+  const tmpQuat = new THREE.Quaternion();
+  const tmpScale = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  let instanceIndex = 0;
+
   for (let i = 0; i < frames.length; i += BARRIER_SAMPLE_STEP) {
     const next = (i + BARRIER_SAMPLE_STEP) % frames.length;
     const a = frames[i]!;
@@ -355,19 +385,13 @@ function buildBarriers(
       const halfLength = length * 0.5;
       const halfThickness = BARRIER_THICKNESS * 0.5;
 
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(length, BARRIER_HEIGHT, BARRIER_THICKNESS),
-        material,
-      );
-      mesh.position.set(center.x, SURFACE_Y + halfHeight, center.z);
-      mesh.rotation.y = yaw;
-      // Barriers do not cast shadows. ~170 of them per track were each adding
-      // a draw to the sun's shadow render, with negligible visual payoff (the
-      // shadow falls onto the asphalt parallel to the wall, mostly hidden by
-      // the wall itself). receiveShadow stays on so cars/objects shadow them.
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
-      group.add(mesh);
+      // Set instance transform: position at segment center, yaw rotation, and
+      // scale the unit cube to (length, height, thickness).
+      tmpPos.set(center.x, SURFACE_Y + halfHeight, center.z);
+      tmpQuat.setFromAxisAngle(yAxis, yaw);
+      tmpScale.set(length, BARRIER_HEIGHT, BARRIER_THICKNESS);
+      tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
+      instancedMesh.setMatrixAt(instanceIndex++, tmpMatrix);
 
       const sinHalf = Math.sin(yaw / 2);
       const cosHalf = Math.cos(yaw / 2);
@@ -387,6 +411,19 @@ function buildBarriers(
     createBarrierSegment(leftA, leftB);
     createBarrierSegment(rightA, rightB);
   }
+
+  // If we allocated more instances than we used (because totalInstances was
+  // a ceiling estimate), set the unused matrices to zero scale so they don't
+  // render as a stray box at the origin.
+  if (instanceIndex < totalInstances) {
+    tmpMatrix.makeScale(0, 0, 0);
+    for (let k = instanceIndex; k < totalInstances; k++) {
+      instancedMesh.setMatrixAt(k, tmpMatrix);
+    }
+  }
+  instancedMesh.instanceMatrix.needsUpdate = true;
+  instancedMesh.count = instanceIndex;
+  group.add(instancedMesh);
 
   return { group, colliders };
 }

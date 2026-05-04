@@ -17,7 +17,16 @@ export function createScene(canvasParent: HTMLElement): SceneBundle {
   camera.position.set(0, 6, 12);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // pixelRatio: 1 instead of min(devicePixelRatio, 2). On a HiDPI laptop
+  // (devicePixelRatio = 2) the previous setting rendered 4× the fragments
+  // a 1× canvas would, which on an integrated GPU is the primary fps cost
+  // for this game. Verified: disabling postprocessing changed fps by 0,
+  // meaning the GPU spends all its time on raw fragment shading. SMAA
+  // already handles AA so the visible quality loss from dropping DPR is
+  // mostly subpixel sharpness on HUD text — acceptable tradeoff for 60fps.
+  // If we ever want to support HiDPI again, gate it behind a "HD mode"
+  // graphics setting.
+  renderer.setPixelRatio(1);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
