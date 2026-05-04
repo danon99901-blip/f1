@@ -69,12 +69,15 @@ export class OpponentController {
     );
     nameTag.addToScene(this.scene);
 
-    // Use default interpolation delay (will be updated by adaptive config)
+    // Use default interpolation delay (will be updated by adaptive config from
+    // NetworkConfig.interpolationDelay once a ping measurement arrives). 50ms
+    // matches the excellent-connection tier and minimizes visible lag; for higher-ping
+    // peers, updateInterpolationDelay() bumps it up to absorb jitter.
     this.remoteOpponents.set(id, {
       id,
       name,
       mesh,
-      interpolator: new Interpolator(100),
+      interpolator: new Interpolator(50),
       nameTag,
     });
     console.log(`[OpponentController] Remote player ${id} added successfully. Total opponents: ${this.remoteOpponents.size}`);

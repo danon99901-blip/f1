@@ -317,6 +317,75 @@ export class NetworkClient {
     return servers;
   }
 
+  /**
+   * Inspect getStats() for the candidate-pair WebRTC selected and log the path.
+   * Runs ~1s after connection so stats have time to populate.
+   *
+   * candidateType meanings:
+   *   - host:  direct LAN/loopback IP (ideal, lowest latency)
+   *   - srflx: server-reflexive — public IP discovered via STUN. Pkt goes
+   *            client → NAT → public internet → NAT → other client. Often fine
+   *            but can hairpin badly through a single ISP.
+   *   - prflx: peer-reflexive — discovered during connectivity checks.
+   *   - relay: forwarded through a TURN server. Adds at minimum 2x TURN-server
+   *            RTT, but always works. Preferable to a broken srflx path.
+   */
+  private static logSelectedCandidatePair(pc: RTCPeerConnection, peerId: string): void {
+    setTimeout(async () => {
+      try {
+        const stats = await pc.getStats();
+        let pair: any = null;
+        const candidates = new Map<string, any>();
+
+        stats.forEach((report) => {
+          if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+            candidates.set(report.id, report);
+          }
+          if (report.type === 'candidate-pair' && (report as any).nominated && (report as any).state === 'succeeded') {
+            pair = report;
+          }
+          // Some browsers report selectedCandidatePairId on transport instead.
+          if (report.type === 'transport' && (report as any).selectedCandidatePairId) {
+            const selectedId = (report as any).selectedCandidatePairId;
+            stats.forEach((r) => {
+              if (r.id === selectedId) pair = r;
+            });
+          }
+        });
+
+        if (!pair) {
+          console.log(`[Network] ICE path to ${peerId}: no selected candidate pair yet`);
+          return;
+        }
+
+        const local = candidates.get(pair.localCandidateId);
+        const remote = candidates.get(pair.remoteCandidateId);
+        const localType = local?.candidateType ?? '?';
+        const remoteType = remote?.candidateType ?? '?';
+        const rttMs = pair.currentRoundTripTime ? Math.round(pair.currentRoundTripTime * 1000) : '?';
+
+        console.log(
+          `[Network] ICE path to ${peerId}: ${localType}↔${remoteType} ` +
+          `RTT=${rttMs}ms ` +
+          `local=${local?.address ?? '?'}:${local?.port ?? '?'} ` +
+          `remote=${remote?.address ?? '?'}:${remote?.port ?? '?'} ` +
+          `protocol=${local?.protocol ?? '?'}`
+        );
+
+        if (localType === 'relay' || remoteType === 'relay') {
+          console.warn(`[Network] Using TURN relay — expect extra hop latency.`);
+        } else if (localType !== 'host' && remoteType !== 'host' && (typeof rttMs === 'number') && rttMs > 100) {
+          console.warn(
+            `[Network] Going through srflx with RTT=${rttMs}ms. If both peers are in the same region, ` +
+            `this likely means NAT hairpin via the ISP. A regional TURN server may give a faster path.`
+          );
+        }
+      } catch (err) {
+        console.warn(`[Network] Failed to read selected ICE candidate pair for ${peerId}:`, err);
+      }
+    }, 1000);
+  }
+
   private async createPeerConnection(peerId: string, initiator: boolean): Promise<void> {
     const pc = new RTCPeerConnection({
       iceServers: NetworkClient.buildIceServers(),
@@ -370,6 +439,13 @@ export class NetworkClient {
         if (this.callbacks.onConnectionStateChange) {
           this.callbacks.onConnectionStateChange('connected');
         }
+        // Once connected, surface the path WebRTC actually picked. Knowing whether
+        // we're going host↔host (ideal, LAN), srflx↔srflx (hairpin via STUN-derived
+        // public IP — adds NAT round-trip), or relay↔relay (TURN — extra hop) is the
+        // single most useful signal when diagnosing high ping. If you see relay or
+        // mismatched candidate types and ping is bad, the network path is the issue,
+        // not the game code.
+        NetworkClient.logSelectedCandidatePair(pc, peerId);
       } else if (pc.connectionState === 'failed') {
         console.warn(`[Network] Connection to ${peerId} failed`);
         if (this.callbacks.onConnectionStateChange) {

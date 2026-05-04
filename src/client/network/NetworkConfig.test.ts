@@ -9,11 +9,11 @@ describe('AdaptiveNetworkConfig', () => {
   });
 
   describe('default configuration', () => {
-    it('should start with good connection defaults', () => {
+    it('should start with excellent connection defaults (30Hz, 50ms buffer)', () => {
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
-      expect(cfg.inputSendInterval).toBe(50);
-      expect(cfg.interpolationDelay).toBe(100);
+      expect(cfg.snapshotInterval).toBe(33);
+      expect(cfg.inputSendInterval).toBe(33);
+      expect(cfg.interpolationDelay).toBe(50);
     });
 
     it('should have zero average ping initially', () => {
@@ -28,9 +28,9 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(35);
 
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
-      expect(cfg.inputSendInterval).toBe(50);
-      expect(cfg.interpolationDelay).toBe(100);
+      expect(cfg.snapshotInterval).toBe(33);
+      expect(cfg.inputSendInterval).toBe(33);
+      expect(cfg.interpolationDelay).toBe(50);
     });
 
     it('should adjust to good config for medium ping (50-100ms)', () => {
@@ -39,9 +39,9 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(75);
 
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(66);
-      expect(cfg.inputSendInterval).toBe(66);
-      expect(cfg.interpolationDelay).toBe(120);
+      expect(cfg.snapshotInterval).toBe(50);
+      expect(cfg.inputSendInterval).toBe(50);
+      expect(cfg.interpolationDelay).toBe(100);
     });
 
     it('should adjust to fair config for high ping (100-150ms)', () => {
@@ -50,9 +50,9 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(125);
 
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(100);
-      expect(cfg.inputSendInterval).toBe(100);
-      expect(cfg.interpolationDelay).toBe(150);
+      expect(cfg.snapshotInterval).toBe(66);
+      expect(cfg.inputSendInterval).toBe(66);
+      expect(cfg.interpolationDelay).toBe(130);
     });
 
     it('should adjust to poor config for very high ping (> 150ms)', () => {
@@ -61,9 +61,9 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(190);
 
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(150);
-      expect(cfg.inputSendInterval).toBe(150);
-      expect(cfg.interpolationDelay).toBe(200);
+      expect(cfg.snapshotInterval).toBe(100);
+      expect(cfg.inputSendInterval).toBe(100);
+      expect(cfg.interpolationDelay).toBe(180);
     });
 
     it('should calculate average ping correctly', () => {
@@ -92,7 +92,7 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(180);
 
       let cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(150);
+      expect(cfg.snapshotInterval).toBe(100);
 
       // Connection improves
       for (let i = 0; i < 10; i++) {
@@ -100,8 +100,8 @@ describe('AdaptiveNetworkConfig', () => {
       }
 
       cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
-      expect(cfg.interpolationDelay).toBe(100);
+      expect(cfg.snapshotInterval).toBe(33);
+      expect(cfg.interpolationDelay).toBe(50);
     });
 
     it('should adapt to degrading connection', () => {
@@ -111,7 +111,7 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(35);
 
       let cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
+      expect(cfg.snapshotInterval).toBe(33);
 
       // Connection degrades
       for (let i = 0; i < 10; i++) {
@@ -119,25 +119,25 @@ describe('AdaptiveNetworkConfig', () => {
       }
 
       cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(150);
-      expect(cfg.interpolationDelay).toBe(200);
+      expect(cfg.snapshotInterval).toBe(100);
+      expect(cfg.interpolationDelay).toBe(180);
     });
   });
 
   describe('getters', () => {
     it('should return correct snapshot interval', () => {
       config.updateFromPing(120);
-      expect(config.getSnapshotInterval()).toBe(100);
+      expect(config.getSnapshotInterval()).toBe(66);
     });
 
     it('should return correct input send interval', () => {
       config.updateFromPing(120);
-      expect(config.getInputSendInterval()).toBe(100);
+      expect(config.getInputSendInterval()).toBe(66);
     });
 
     it('should return correct interpolation delay', () => {
       config.updateFromPing(120);
-      expect(config.getInterpolationDelay()).toBe(150);
+      expect(config.getInterpolationDelay()).toBe(130);
     });
   });
 
@@ -150,9 +150,9 @@ describe('AdaptiveNetworkConfig', () => {
       config.reset();
 
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
-      expect(cfg.inputSendInterval).toBe(50);
-      expect(cfg.interpolationDelay).toBe(100);
+      expect(cfg.snapshotInterval).toBe(33);
+      expect(cfg.inputSendInterval).toBe(33);
+      expect(cfg.interpolationDelay).toBe(50);
       expect(config.getAveragePing()).toBe(0);
     });
   });
@@ -161,30 +161,30 @@ describe('AdaptiveNetworkConfig', () => {
     it('should handle ping at exact threshold boundaries', () => {
       config.updateFromPing(50);
       let cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(66); // Should be in 50-100 range
+      expect(cfg.snapshotInterval).toBe(50); // Should be in 50-100 range
 
       config.reset();
       config.updateFromPing(100);
       cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(100); // Should be in 100-150 range
+      expect(cfg.snapshotInterval).toBe(66); // Should be in 100-150 range
 
       config.reset();
       config.updateFromPing(150);
       cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(150); // Should be in > 150 range
+      expect(cfg.snapshotInterval).toBe(100); // Should be in > 150 range
     });
 
     it('should handle zero ping', () => {
       config.updateFromPing(0);
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(50);
+      expect(cfg.snapshotInterval).toBe(33);
     });
 
     it('should handle extremely high ping', () => {
       config.updateFromPing(1000);
       const cfg = config.getConfig();
-      expect(cfg.snapshotInterval).toBe(150);
-      expect(cfg.interpolationDelay).toBe(200);
+      expect(cfg.snapshotInterval).toBe(100);
+      expect(cfg.interpolationDelay).toBe(180);
     });
   });
 });

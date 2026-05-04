@@ -60,7 +60,7 @@ export const DRAG_COEFF = 1.1;
 
 // Network timing
 export const TICK_RATE = 60;           // Physics simulation rate (Hz)
-export const SNAPSHOT_RATE = 20;       // Network snapshot broadcast rate (Hz)
+export const SNAPSHOT_RATE = 30;       // Network snapshot broadcast rate (Hz) — 30Hz for lower visible latency. Actual rate is set per-client via NetworkConfig based on measured ping.
 // Number of snapshots to buffer for interpolation. At SNAPSHOT_RATE=20Hz with a 100ms
 // render delay, the interpolator typically consumes 2 snapshots per frame; a buffer of
 // 3 collapses to extrapolation almost immediately when packets are reordered or jitter
