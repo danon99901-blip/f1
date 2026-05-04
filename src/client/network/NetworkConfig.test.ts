@@ -9,11 +9,11 @@ describe('AdaptiveNetworkConfig', () => {
   });
 
   describe('default configuration', () => {
-    it('should start with excellent connection defaults (30Hz, 50ms buffer)', () => {
+    it('should start with excellent connection defaults (30Hz, 90ms buffer)', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(33);
       expect(cfg.inputSendInterval).toBe(33);
-      expect(cfg.interpolationDelay).toBe(50);
+      expect(cfg.interpolationDelay).toBe(90);
     });
 
     it('should have zero average ping initially', () => {
@@ -30,7 +30,7 @@ describe('AdaptiveNetworkConfig', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(33);
       expect(cfg.inputSendInterval).toBe(33);
-      expect(cfg.interpolationDelay).toBe(50);
+      expect(cfg.interpolationDelay).toBe(90);
     });
 
     it('should adjust to good config for medium ping (50-100ms)', () => {
@@ -41,7 +41,7 @@ describe('AdaptiveNetworkConfig', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(50);
       expect(cfg.inputSendInterval).toBe(50);
-      expect(cfg.interpolationDelay).toBe(100);
+      expect(cfg.interpolationDelay).toBe(130);
     });
 
     it('should adjust to fair config for high ping (100-150ms)', () => {
@@ -52,7 +52,7 @@ describe('AdaptiveNetworkConfig', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(66);
       expect(cfg.inputSendInterval).toBe(66);
-      expect(cfg.interpolationDelay).toBe(130);
+      expect(cfg.interpolationDelay).toBe(170);
     });
 
     it('should adjust to poor config for very high ping (> 150ms)', () => {
@@ -63,7 +63,7 @@ describe('AdaptiveNetworkConfig', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(100);
       expect(cfg.inputSendInterval).toBe(100);
-      expect(cfg.interpolationDelay).toBe(180);
+      expect(cfg.interpolationDelay).toBe(230);
     });
 
     it('should calculate average ping correctly', () => {
@@ -101,7 +101,7 @@ describe('AdaptiveNetworkConfig', () => {
 
       cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(33);
-      expect(cfg.interpolationDelay).toBe(50);
+      expect(cfg.interpolationDelay).toBe(90);
     });
 
     it('should adapt to degrading connection', () => {
@@ -120,7 +120,7 @@ describe('AdaptiveNetworkConfig', () => {
 
       cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(100);
-      expect(cfg.interpolationDelay).toBe(180);
+      expect(cfg.interpolationDelay).toBe(230);
     });
   });
 
@@ -137,7 +137,7 @@ describe('AdaptiveNetworkConfig', () => {
 
     it('should return correct interpolation delay', () => {
       config.updateFromPing(120);
-      expect(config.getInterpolationDelay()).toBe(130);
+      expect(config.getInterpolationDelay()).toBe(170);
     });
   });
 
@@ -152,7 +152,7 @@ describe('AdaptiveNetworkConfig', () => {
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(33);
       expect(cfg.inputSendInterval).toBe(33);
-      expect(cfg.interpolationDelay).toBe(50);
+      expect(cfg.interpolationDelay).toBe(90);
       expect(config.getAveragePing()).toBe(0);
     });
   });
@@ -184,7 +184,19 @@ describe('AdaptiveNetworkConfig', () => {
       config.updateFromPing(1000);
       const cfg = config.getConfig();
       expect(cfg.snapshotInterval).toBe(100);
-      expect(cfg.interpolationDelay).toBe(180);
+      expect(cfg.interpolationDelay).toBe(230);
+    });
+
+    it('should hold invariant: interpolationDelay >= 2 * snapshotInterval', () => {
+      // This invariant prevents extrapolation under normal jitter, which is the
+      // root cause of remote-car stutter.
+      const samples = [10, 30, 49, 70, 99, 120, 149, 200, 500];
+      for (const ping of samples) {
+        config.reset();
+        config.updateFromPing(ping);
+        const cfg = config.getConfig();
+        expect(cfg.interpolationDelay).toBeGreaterThanOrEqual(2 * cfg.snapshotInterval);
+      }
     });
   });
 });

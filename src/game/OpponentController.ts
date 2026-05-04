@@ -69,15 +69,15 @@ export class OpponentController {
     );
     nameTag.addToScene(this.scene);
 
-    // Use default interpolation delay (will be updated by adaptive config from
-    // NetworkConfig.interpolationDelay once a ping measurement arrives). 50ms
-    // matches the excellent-connection tier and minimizes visible lag; for higher-ping
-    // peers, updateInterpolationDelay() bumps it up to absorb jitter.
+    // Use default interpolation delay matching NetworkConfig's excellent-tier
+    // (90ms = ~3 snapshots at 30Hz). Must be >= 2 * snapshotInterval + jitter or
+    // the interpolator will extrapolate and the car will visibly stutter on every
+    // late packet. updateInterpolationDelay() promotes this for higher-ping peers.
     this.remoteOpponents.set(id, {
       id,
       name,
       mesh,
-      interpolator: new Interpolator(50),
+      interpolator: new Interpolator(90),
       nameTag,
     });
     console.log(`[OpponentController] Remote player ${id} added successfully. Total opponents: ${this.remoteOpponents.size}`);

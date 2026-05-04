@@ -133,6 +133,23 @@ export function createHud(): Hud {
   const netUnit = el('div', 'hud-net-unit', 'ms');
   netPanel.append(netIcon, netPing, netUnit);
 
+  // ---- Top-right: FPS counter ----
+  // Self-contained: measures inter-frame time from update() calls. Uses an EWMA so
+  // the displayed value doesn't flicker every frame, but updates fast enough that
+  // a real fps drop is visible within ~250ms.
+  const fpsPanel = el('div', 'hud-panel hud-fps hud-anim hud-anim-tr');
+  const fpsValue = el('div', 'hud-fps-value hud-num', '--');
+  const fpsLabel = el('div', 'hud-fps-label', 'FPS');
+  fpsPanel.append(fpsValue, fpsLabel);
+  // Inline minimal styling so we don't need to touch CSS files for this debug panel.
+  fpsPanel.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.55);color:#fff;font-family:monospace;font-size:14px;padding:4px 8px;border-radius:4px;z-index:1000;display:flex;gap:6px;align-items:baseline;';
+  fpsValue.style.cssText = 'font-size:18px;font-weight:bold;';
+  fpsLabel.style.cssText = 'font-size:10px;opacity:0.7;';
+
+  let lastFpsUpdate = performance.now();
+  let smoothedFps = 0;
+  let frameCounter = 0;
+
   // ---- Center overlay: reconnection notification ----
   const reconnectOverlay = el('div', 'hud-reconnect-overlay');
   reconnectOverlay.style.display = 'none';
@@ -146,7 +163,7 @@ export function createHud(): Hud {
   // ---- Notification system ----
   const notificationContainer = el('div', 'hud-notification-container');
 
-  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, reconnectOverlay, notificationContainer);
+  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, fpsPanel, reconnectOverlay, notificationContainer);
 
   // Track previous best to flash on improvement.
   let lastBestMs: number | null = null;
@@ -155,6 +172,25 @@ export function createHud(): Hud {
   const activeNotifications = new Set<HTMLElement>();
 
   function update(state: HudState): void {
+    // FPS — sampled from inter-frame time, smoothed via EWMA, displayed every 250ms.
+    // We compute every frame so the EWMA tracks accurately, but only paint to the DOM
+    // 4x/sec to avoid font-rendering jank.
+    const now = performance.now();
+    const dt = now - lastFpsUpdate;
+    lastFpsUpdate = now;
+    if (dt > 0 && dt < 1000) {
+      const instantFps = 1000 / dt;
+      smoothedFps = smoothedFps === 0 ? instantFps : smoothedFps * 0.9 + instantFps * 0.1;
+    }
+    frameCounter++;
+    if (frameCounter >= 15) {
+      frameCounter = 0;
+      const rounded = Math.round(smoothedFps);
+      fpsValue.textContent = String(rounded);
+      // Color-code: green ≥55, yellow 30-54, red <30.
+      fpsValue.style.color = rounded >= 55 ? '#7fff7f' : rounded >= 30 ? '#ffd57f' : '#ff7f7f';
+    }
+
     // Speed
     speedValue.textContent = formatSpeed(state.speedKmh);
     const pct = Math.min(1, Math.max(0, state.speedKmh / 360));
