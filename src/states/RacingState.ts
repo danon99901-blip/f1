@@ -1025,6 +1025,11 @@ export class RacingState implements GameState {
         this.clientPrediction.recordInput(this.inputSeq, input, timestamp);
       }
 
+      // Diagnostic: log every 60th input (~3s at 20Hz) to confirm guest is sending
+      if (this.inputSeq === 1 || this.inputSeq % 60 === 0) {
+        console.log(`[RacingState] GUEST sendInput #${this.inputSeq} t=${input.throttle.toFixed(2)} b=${input.brake.toFixed(2)} s=${input.steer.toFixed(2)}`);
+      }
+
       this.networkService.sendToHost(inputMessage);
     }
   }
