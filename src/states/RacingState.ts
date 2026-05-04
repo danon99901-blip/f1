@@ -75,9 +75,6 @@ export class RacingState implements GameState {
   // Buffer for snapshots that arrive before OpponentController is created
   private pendingSnapshots: Array<{ snapshot: any; timestamp: number }> = [];
 
-  // Store local player's final spawn position (after offset) for opponent positioning
-  private localPlayerSpawnPos: THREE.Vector3 | null = null;
-
   async enter(context: StateContext): Promise<void> {
     console.log('[RacingState] Enter started');
     this.context = context;
@@ -171,9 +168,6 @@ export class RacingState implements GameState {
     } else if (this.gameMode === 'multi_guest') {
       spawnPos.x += 1.5; // Guest spawns on right
     }
-
-    // Store final spawn position for opponent positioning
-    this.localPlayerSpawnPos = spawnPos.clone();
 
     localVehicle.rigidBody.setTranslation(spawnPos, true);
     localVehicle.rigidBody.setRotation(
@@ -1084,22 +1078,20 @@ export class RacingState implements GameState {
    * Host spawns on the left (-X), guests spawn on the right (+X) with increasing offsets.
    */
   private getOpponentSpawnPosition(opponentId: string, baseSpawnPos: THREE.Vector3): THREE.Vector3 {
-    // Use local player's final spawn position (after offset) as reference
-    const referencePos = this.localPlayerSpawnPos ?? baseSpawnPos;
-    const spawnPos = referencePos.clone();
+    const spawnPos = baseSpawnPos.clone();
 
     if (this.gameMode === 'multi_host') {
-      // Host is on the left, so opponents (guests) spawn on the right
+      // Host is on the left (-1.5), so opponents (guests) spawn on the right
       // Find the index of this opponent in the room
       const opponentIndex = this.roomInfo?.players.findIndex(p => p.id === opponentId) ?? 0;
-      const offset = 3.0 + (opponentIndex * 2); // 3.0, 5.0, 7.0, etc. (relative to host position)
+      const offset = 1.5 + (opponentIndex * 2); // Guest at +1.5, +3.5, +5.5, etc.
       spawnPos.x += offset;
-      console.log(`[RacingState] Opponent ${opponentId} spawn: reference=${referencePos.x.toFixed(2)}, offset=+${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
+      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, offset=+${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
     } else if (this.gameMode === 'multi_guest') {
-      // Guest is on the right, so opponent (host) spawns on the left
-      const offset = -3.0; // 3.0 meters to the left of guest
+      // Guest is on the right (+1.5), so opponent (host) spawns on the left
+      const offset = -1.5; // Host at -1.5 (base position minus 1.5)
       spawnPos.x += offset;
-      console.log(`[RacingState] Opponent ${opponentId} spawn: reference=${referencePos.x.toFixed(2)}, offset=${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
+      console.log(`[RacingState] Opponent ${opponentId} spawn: base=${baseSpawnPos.x.toFixed(2)}, offset=${offset.toFixed(2)}, final=${spawnPos.x.toFixed(2)}`);
     }
 
     return spawnPos;
