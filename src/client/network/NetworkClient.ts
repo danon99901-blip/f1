@@ -148,15 +148,31 @@ export class NetworkClient {
 
     let sentCount = 0;
     let totalChannels = 0;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(message);
+    } catch (error) {
+      console.error(`[Network] Failed to serialize ${message.type}:`, error);
+      return;
+    }
 
     this.dataChannels.forEach((channel, peerId) => {
       totalChannels++;
       if (channel.readyState === 'open') {
         try {
-          channel.send(JSON.stringify(message));
+          channel.send(serialized);
           sentCount++;
         } catch (error) {
-          console.error(`[Network] Failed to send ${message.type} to ${peerId}:`, error);
+          // Loud error: a thrown send() is the prime suspect when snapshots silently
+          // fail to reach the guest. Common causes:
+          //   - Message > sctp max-message-size (typically 64KB) → fragmentation needed
+          //   - bufferedAmount too high → backpressure, channel is overwhelmed
+          //   - Channel closed between readyState check and send (race)
+          console.error(
+            `[Network] send(${message.type}) to ${peerId} threw: ${(error as Error).message}. ` +
+            `payloadBytes=${serialized.length} bufferedAmount=${channel.bufferedAmount}`,
+            error
+          );
         }
       } else {
         console.warn(`[Network] Data channel to ${peerId} not open (state: ${channel.readyState})`);
@@ -165,7 +181,7 @@ export class NetworkClient {
 
     // Log warning if no messages were sent
     if (totalChannels > 0 && sentCount === 0) {
-      console.warn(`[Network] broadcastToGuests: No messages sent! Total channels: ${totalChannels}, sent: ${sentCount}`);
+      console.warn(`[Network] broadcastToGuests: No messages sent! Total channels: ${totalChannels}, sent: ${sentCount}, type: ${message.type}`);
     }
   }
 
@@ -405,9 +421,23 @@ export class NetworkClient {
       this.dataChannels.delete(peerId);
     };
 
+    // Diagnostic counters: independent of NetworkService's once-per-50 throttling, so we
+    // can prove whether the channel is delivering snapshots at all.
+    let dcMsgCount = 0;
+    let dcSnapshotCount = 0;
     channel.onmessage = (event) => {
+      dcMsgCount++;
       try {
         const message = JSON.parse(event.data);
+
+        if (message?.type === 'snapshot') {
+          dcSnapshotCount++;
+          if (dcSnapshotCount === 1 || dcSnapshotCount % 60 === 0) {
+            console.log(`[Network] DC ${peerId} recv snapshot #${dcSnapshotCount} (total msgs: ${dcMsgCount}, payload: ${event.data.length}b)`);
+          }
+        } else if (dcMsgCount <= 10) {
+          console.log(`[Network] DC ${peerId} recv ${message?.type ?? 'unknown'} (msg #${dcMsgCount}, ${event.data.length}b)`);
+        }
 
         if (this.mode === 'host') {
           // Host receiving message from guest
