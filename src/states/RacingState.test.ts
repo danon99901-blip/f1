@@ -56,6 +56,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
     mockNetworkService = {
       sendToHost: vi.fn(),
       sendToAllGuests: vi.fn(),
+      getNetworkStats: vi.fn(() => ({ ping: 50, jitter: 5 })),
       on: vi.fn(),
       off: vi.fn(),
     } as any;
@@ -1222,6 +1223,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
 
       const mockOpponentController = {
         updateRemoteVisuals: vi.fn(),
+        updateInterpolationDelay: vi.fn(),
       } as any;
 
       (racingState as any).gameMode = 'multi_guest'; // Guest mode

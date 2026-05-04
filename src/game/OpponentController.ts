@@ -55,8 +55,6 @@ export class OpponentController {
 
     if (this.remoteOpponents.has(id)) return;
 
-    console.log(`[OpponentController] Adding remote player ${id} (${name}) with color 0x${carColor.toString(16)}`);
-
     const mesh = createCarModel(carColor);
     this.scene.add(mesh);
 
@@ -66,12 +64,22 @@ export class OpponentController {
     );
     nameTag.addToScene(this.scene);
 
+    // Use default interpolation delay (will be updated by adaptive config)
     this.remoteOpponents.set(id, {
       id,
       name,
       mesh,
       interpolator: new Interpolator(100),
       nameTag,
+    });
+  }
+
+  /**
+   * Update interpolation delay for all remote players based on network conditions
+   */
+  updateInterpolationDelay(delayMs: number): void {
+    this.remoteOpponents.forEach((opponent) => {
+      opponent.interpolator = new Interpolator(delayMs);
     });
   }
 
@@ -110,13 +118,7 @@ export class OpponentController {
   updateRemotePlayer(snapshot: PlayerSnapshot, timestamp: number): void {
     const opponent = this.remoteOpponents.get(snapshot.id);
     if (opponent) {
-      console.log('[OpponentController] Adding snapshot for %s: pos=(%.2f, %.2f, %.2f), timestamp=%.2f',
-        snapshot.id, snapshot.position[0], snapshot.position[1], snapshot.position[2], timestamp);
       opponent.interpolator.addSnapshot(snapshot, timestamp);
-      const bufferSize = opponent.interpolator.getBufferSize();
-      console.log('[OpponentController] Interpolator buffer size for %s: %d snapshots', snapshot.id, bufferSize);
-    } else {
-      console.warn('[OpponentController] updateRemotePlayer called for unknown opponent: %s', snapshot.id);
     }
   }
 
@@ -126,7 +128,6 @@ export class OpponentController {
       opponent.mesh.position.copy(position);
       opponent.mesh.quaternion.copy(rotation);
       opponent.nameTag.updatePosition(position);
-      console.log(`[OpponentController] Set initial position for ${id}:`, position);
     }
   }
 
@@ -146,23 +147,12 @@ export class OpponentController {
   updateRemoteVisuals(currentTime: number): THREE.Group | null {
     let localPlayerMesh: THREE.Group | null = null;
 
-    console.log('[OpponentController] updateRemoteVisuals called at time=%.2f, opponents=%d',
-      currentTime, this.remoteOpponents.size);
-
     this.remoteOpponents.forEach((opponent) => {
-      const bufferSize = opponent.interpolator.getBufferSize();
-      console.log('[OpponentController] Interpolating %s: buffer size=%d', opponent.id, bufferSize);
-
       const interpolated = opponent.interpolator.interpolate(currentTime);
       if (interpolated) {
-        console.log('[OpponentController] Interpolated %s: pos=(%.2f, %.2f, %.2f)',
-          opponent.id, interpolated.position.x, interpolated.position.y, interpolated.position.z);
         opponent.mesh.position.copy(interpolated.position);
         opponent.mesh.quaternion.copy(interpolated.rotation);
         opponent.nameTag.updatePosition(interpolated.position);
-        console.log('[OpponentController] Applied interpolated position to mesh for %s', opponent.id);
-      } else {
-        console.warn('[OpponentController] Interpolator returned null for %s (insufficient data)', opponent.id);
       }
     });
 

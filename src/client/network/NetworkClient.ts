@@ -146,104 +146,30 @@ export class NetworkClient {
   broadcastToGuests(message: HostMessage): void {
     if (this.mode !== 'host') return;
 
-    let sentCount = 0;
-    let closedCount = 0;
-    const channelStates: { peerId: string; state: string; sent: boolean }[] = [];
-
     this.dataChannels.forEach((channel, peerId) => {
-      const state = channel.readyState;
-      let sent = false;
-
-      if (state === 'open') {
+      if (channel.readyState === 'open') {
         try {
           channel.send(JSON.stringify(message));
-          sentCount++;
-          sent = true;
         } catch (error) {
-          console.error(`[Network] HOST BROADCAST ERROR: Failed to send to ${peerId}:`, error);
+          console.error(`[Network] Failed to send ${message.type} to ${peerId}:`, error);
         }
-      } else {
-        closedCount++;
-        console.warn(`[Network] Cannot send to ${peerId}: channel state is ${state}`);
       }
-
-      channelStates.push({ peerId, state, sent });
     });
-
-    // Log snapshot broadcasts (most frequent)
-    if (message.type === 'snapshot') {
-      // Log every 50th snapshot to avoid spam
-      if (!this.snapshotCounter) this.snapshotCounter = 0;
-      this.snapshotCounter++;
-      if (this.snapshotCounter % 50 === 0) {
-        console.log(`[Network] HOST BROADCAST #${this.snapshotCounter}: Sent ${sentCount} snapshots (${closedCount} channels closed). Total channels: ${this.dataChannels.size}`, {
-          tick: message.tick,
-          playerCount: message.players.length,
-          timestamp: message.timestamp,
-          channelStates: channelStates
-        });
-      }
-    } else {
-      console.log(`[Network] HOST BROADCAST: ${message.type} to ${sentCount} guests (${closedCount} channels closed). Total channels: ${this.dataChannels.size}`, {
-        channelStates: channelStates
-      });
-    }
   }
-
-  private snapshotCounter = 0;
 
   // Guest sends message to host
   sendToHost(message: ClientMessage): void {
-    if (this.mode !== 'guest') {
-      console.warn(`[Network] GUEST SEND BLOCKED: Not in guest mode (current mode: ${this.mode})`);
-      return;
-    }
+    if (this.mode !== 'guest') return;
 
     const hostChannel = Array.from(this.dataChannels.values())[0];
+    if (!hostChannel || hostChannel.readyState !== 'open') return;
 
-    // Log channel state BEFORE attempting to send
-    if (!hostChannel) {
-      console.error(`[Network] GUEST SEND FAILED: No data channel exists. Total channels: ${this.dataChannels.size}`);
-      return;
-    }
-
-    if (hostChannel.readyState !== 'open') {
-      console.warn(`[Network] GUEST SEND FAILED: Channel state is "${hostChannel.readyState}" (not "open")`);
-      return;
-    }
-
-    // Log input sends (most frequent)
-    if (message.type === 'input') {
-      // Log every 50th input to avoid spam
-      if (!this.inputCounter) this.inputCounter = 0;
-      this.inputCounter++;
-      if (this.inputCounter % 50 === 0) {
-        console.log(`[Network] GUEST SEND (before): Sending input #${this.inputCounter} to host. Channel state: ${hostChannel.readyState}. Data:`, {
-          seq: message.seq,
-          throttle: message.throttle.toFixed(3),
-          steering: message.steer.toFixed(3),
-          brake: message.brake.toFixed(3),
-          timestamp: message.timestamp
-        });
-      }
-    } else {
-      console.log(`[Network] GUEST SEND (before): Sending ${message.type} to host. Channel state: ${hostChannel.readyState}`);
-    }
-
-    // Actually send the message
     try {
       hostChannel.send(JSON.stringify(message));
-
-      // Confirm successful send for non-input messages
-      if (message.type !== 'input') {
-        console.log(`[Network] GUEST SEND (after): Successfully sent ${message.type}`);
-      }
     } catch (error) {
-      console.error(`[Network] GUEST SEND ERROR: Failed to send ${message.type}:`, error);
+      console.error(`[Network] Failed to send ${message.type} to host:`, error);
     }
   }
-
-  private inputCounter = 0;
 
   private handleSignalingMessage(message: SignalingServerMessage): void {
     switch (message.type) {
@@ -389,11 +315,11 @@ export class NetworkClient {
     this.dataChannels.set(peerId, channel);
 
     channel.onopen = () => {
-      console.log(`[Network] ✅ Data channel OPEN with ${peerId}. Mode: ${this.mode}, Total channels: ${this.dataChannels.size}`);
+      console.log(`[Network] Data channel open with ${peerId}`);
     };
 
     channel.onclose = () => {
-      console.log(`[Network] ❌ Data channel CLOSED with ${peerId}. Mode: ${this.mode}`);
+      console.log(`[Network] Data channel closed with ${peerId}`);
       this.dataChannels.delete(peerId);
     };
 
@@ -402,56 +328,15 @@ export class NetworkClient {
         const message = JSON.parse(event.data);
 
         if (this.mode === 'host') {
-          // Host receives client messages
-          const clientMsg = message as ClientMessage;
-
-          // Log received inputs (most frequent)
-          if (clientMsg.type === 'input') {
-            if (!this.receivedInputCounter) this.receivedInputCounter = 0;
-            this.receivedInputCounter++;
-            if (this.receivedInputCounter % 50 === 0) {
-              console.log(`[Network] HOST RECEIVED: Input #${this.receivedInputCounter} from ${peerId}. Sample data:`, {
-                seq: clientMsg.seq,
-                throttle: clientMsg.throttle,
-                steering: clientMsg.steer,
-                brake: clientMsg.brake,
-                timestamp: clientMsg.timestamp
-              });
-            }
-          } else {
-            console.log(`[Network] HOST RECEIVED: ${clientMsg.type} from ${peerId}`);
-          }
-
-          this.callbacks.onGuestMessage(peerId, clientMsg);
+          this.callbacks.onGuestMessage(peerId, message as ClientMessage);
         } else {
-          // Guest receives host messages
-          const hostMsg = message as HostMessage;
-
-          // Log received snapshots (most frequent)
-          if (hostMsg.type === 'snapshot') {
-            if (!this.receivedSnapshotCounter) this.receivedSnapshotCounter = 0;
-            this.receivedSnapshotCounter++;
-            if (this.receivedSnapshotCounter % 50 === 0) {
-              console.log(`[Network] GUEST RECEIVED: Snapshot #${this.receivedSnapshotCounter} from host. Sample data:`, {
-                tick: hostMsg.tick,
-                playerCount: hostMsg.players.length,
-                timestamp: hostMsg.timestamp
-              });
-            }
-          } else {
-            console.log(`[Network] GUEST RECEIVED: ${hostMsg.type} from host`);
-          }
-
-          this.callbacks.onHostMessage(hostMsg);
+          this.callbacks.onHostMessage(message as HostMessage);
         }
       } catch (err) {
         console.error('[Network] Failed to parse data channel message:', err);
       }
     };
   }
-
-  private receivedInputCounter = 0;
-  private receivedSnapshotCounter = 0;
 
   private async handleOffer(fromId: string, offer: RTCSessionDescriptionInit): Promise<void> {
     const pc = this.peerConnections.get(fromId);

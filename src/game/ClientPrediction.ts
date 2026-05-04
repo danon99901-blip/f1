@@ -36,8 +36,10 @@ export class ClientPrediction {
   /**
    * Handle server snapshot and reconcile if needed
    */
-  reconcile(snapshot: PlayerSnapshot, currentTime: number): boolean {
+  reconcile(snapshot: PlayerSnapshot, serverTimestamp: number): boolean {
     this.lastServerSnapshot = snapshot;
+
+    const currentTime = performance.now();
 
     // Don't reconcile too frequently
     if (currentTime - this.lastReconciliationTime < this.reconciliationCooldown) {
@@ -58,8 +60,7 @@ export class ClientPrediction {
 
     // If error is above threshold, reconcile
     if (error > this.reconciliationThreshold) {
-      console.log(`[ClientPrediction] Reconciling: error=${error.toFixed(3)}m`);
-      this.performReconciliation(snapshot);
+      this.performReconciliation(snapshot, serverTimestamp);
       this.lastReconciliationTime = currentTime;
       return true;
     }
@@ -70,7 +71,7 @@ export class ClientPrediction {
   /**
    * Perform server reconciliation by rewinding and replaying inputs
    */
-  private performReconciliation(snapshot: PlayerSnapshot): void {
+  private performReconciliation(snapshot: PlayerSnapshot, serverTimestamp: number): void {
     const vehicle = this.controller.getVehicle();
 
     // Step 1: Rewind to server state
@@ -102,16 +103,13 @@ export class ClientPrediction {
       true
     );
 
-    // Step 2: Find inputs that happened after this snapshot
-    // (inputs that the server hasn't processed yet)
+    // Step 2: Find inputs that happened after this snapshot (using correct timestamp comparison)
     const unprocessedInputs = this.inputHistory.filter(
-      (entry) => entry.timestamp > snapshot.lapTimeMs
+      (entry) => entry.timestamp > serverTimestamp
     );
 
     // Step 3: Replay unprocessed inputs
     if (unprocessedInputs.length > 0) {
-      console.log(`[ClientPrediction] Replaying ${unprocessedInputs.length} inputs`);
-
       // Estimate dt between inputs (typically 50ms at 20 Hz)
       const avgDt = 0.05;
 
