@@ -227,9 +227,6 @@ export class RacingState implements GameState {
       // Multiplayer: no AI opponents, only remote players
       this.opponentController = new OpponentController('remote', scene);
       // Opponent initialization will happen in update() after first physics step
-
-      // Apply any buffered snapshots that arrived before OpponentController was created
-      this.flushPendingSnapshots();
     }
 
     console.log('[RacingState] Creating HUD...');
@@ -332,11 +329,6 @@ export class RacingState implements GameState {
     // Multiplayer: Guest receives and interpolates
     if (this.gameMode === 'multi_guest' && this.opponentController) {
       this.opponentController.updateRemoteVisuals(performance.now());
-    }
-
-    // Multiplayer: Host updates guest visual meshes
-    if (this.gameMode === 'multi_host') {
-      this.updateGuestVisuals();
     }
 
     // Update camera with frame-rate independent smoothing
@@ -560,6 +552,12 @@ export class RacingState implements GameState {
       this.sendImmediateSnapshot();
       console.log('[RacingState] Host sent first snapshot after opponent initialization');
     }
+
+    // Process any buffered snapshots that arrived before opponent initialization (Guest only)
+    if (this.gameMode === 'multi_guest') {
+      this.flushPendingSnapshots();
+      console.log('[RacingState] Guest flushed pending snapshots after opponent initialization');
+    }
   }
 
   private handleRaceFinished = () => {
@@ -619,7 +617,7 @@ export class RacingState implements GameState {
       }];
 
       console.log('[HOST_BROADCAST] Host data: id=%s, name=%s, color=0x%s',
-        this.playerId, players[0].name, players[0].carColor.toString(16));
+        this.playerId, players[0]?.name, players[0]?.carColor.toString(16));
 
       // Add guest players
       console.log('[HOST_BROADCAST] Guest vehicles count: %d', this.guestVehicles.size);
@@ -1146,6 +1144,9 @@ export class RacingState implements GameState {
       // Apply the latest input to the guest vehicle
       guestData.controller.update(guestData.lastInput, dt);
 
+      // CRITICAL: Sync visual mesh with physics body after update
+      guestData.vehicle.syncVisuals();
+
       // Get position after update
       const posAfter = guestData.vehicle.rigidBody.translation();
       const speedAfter = guestData.vehicle.getSpeedKmh();
@@ -1153,33 +1154,17 @@ export class RacingState implements GameState {
       console.log('[HOST_GUEST_UPDATE] Guest %s: before pos=(%.2f, %.2f, %.2f) speed=%.1f, after pos=(%.2f, %.2f, %.2f) speed=%.1f',
         guestId, posBefore.x, posBefore.y, posBefore.z, speedBefore,
         posAfter.x, posAfter.y, posAfter.z, speedAfter);
+
+      // Update OpponentController visual mesh to match physics body
+      if (this.opponentController) {
+        const position = new THREE.Vector3(posAfter.x, posAfter.y, posAfter.z);
+        const rotation = guestData.vehicle.rigidBody.rotation();
+        const quaternion = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+        this.opponentController.updateRemotePlayerDirect(guestId, position, quaternion);
+      }
     });
   }
 
-  /**
-   * Update visual meshes of guest players on the host.
-   * This ensures that the host sees guest cars in the correct positions.
-   */
-  private updateGuestVisuals(): void {
-    if (this.gameMode !== 'multi_host' || !this.opponentController) {
-      return;
-    }
-
-    console.log('[HOST_GUEST_VISUALS] Updating visuals for %d guests', this.guestVehicles.size);
-
-    this.guestVehicles.forEach((guestData, guestId) => {
-      const vehicle = guestData.vehicle;
-      const position = vehicle.chassisMesh.position.clone();
-      const rotation = vehicle.chassisMesh.quaternion.clone();
-
-      console.log('[HOST_GUEST_VISUALS] Guest %s: mesh pos=(%.2f, %.2f, %.2f)',
-        guestId, position.x, position.y, position.z);
-
-      // Update the visual mesh directly (no interpolation needed on host)
-      this.opponentController!.updateRemotePlayerDirect(guestId, position, rotation);
-      console.log('[HOST_GUEST_VISUALS] Updated visual mesh for guest %s', guestId);
-    });
-  }
 
   private handlePlayerDisconnect(playerId: string): void {
     console.log(`[RacingState] Handling disconnect for player ${playerId}`);

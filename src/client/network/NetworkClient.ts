@@ -235,7 +235,7 @@ export class NetworkClient {
       hostChannel.send(JSON.stringify(message));
 
       // Confirm successful send for non-input messages
-      if (message.type !== 'guest_input') {
+      if (message.type !== 'input') {
         console.log(`[Network] GUEST SEND (after): Successfully sent ${message.type}`);
       }
     } catch (error) {
