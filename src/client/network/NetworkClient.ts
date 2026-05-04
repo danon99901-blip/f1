@@ -146,15 +146,27 @@ export class NetworkClient {
   broadcastToGuests(message: HostMessage): void {
     if (this.mode !== 'host') return;
 
+    let sentCount = 0;
+    let totalChannels = 0;
+
     this.dataChannels.forEach((channel, peerId) => {
+      totalChannels++;
       if (channel.readyState === 'open') {
         try {
           channel.send(JSON.stringify(message));
+          sentCount++;
         } catch (error) {
           console.error(`[Network] Failed to send ${message.type} to ${peerId}:`, error);
         }
+      } else {
+        console.warn(`[Network] Data channel to ${peerId} not open (state: ${channel.readyState})`);
       }
     });
+
+    // Log warning if no messages were sent
+    if (totalChannels > 0 && sentCount === 0) {
+      console.warn(`[Network] broadcastToGuests: No messages sent! Total channels: ${totalChannels}, sent: ${sentCount}`);
+    }
   }
 
   // Guest sends message to host
@@ -162,7 +174,15 @@ export class NetworkClient {
     if (this.mode !== 'guest') return;
 
     const hostChannel = Array.from(this.dataChannels.values())[0];
-    if (!hostChannel || hostChannel.readyState !== 'open') return;
+    if (!hostChannel) {
+      console.warn('[Network] sendToHost: No data channel to host exists');
+      return;
+    }
+
+    if (hostChannel.readyState !== 'open') {
+      console.warn(`[Network] sendToHost: Data channel not open (state: ${hostChannel.readyState})`);
+      return;
+    }
 
     try {
       hostChannel.send(JSON.stringify(message));
@@ -315,7 +335,7 @@ export class NetworkClient {
     this.dataChannels.set(peerId, channel);
 
     channel.onopen = () => {
-      console.log(`[Network] Data channel open with ${peerId}`);
+      console.log(`[Network] Data channel open with ${peerId}, mode: ${this.mode}`);
     };
 
     channel.onclose = () => {
@@ -328,13 +348,19 @@ export class NetworkClient {
         const message = JSON.parse(event.data);
 
         if (this.mode === 'host') {
+          // Host receiving message from guest
           this.callbacks.onGuestMessage(peerId, message as ClientMessage);
         } else {
+          // Guest receiving message from host
           this.callbacks.onHostMessage(message as HostMessage);
         }
       } catch (err) {
         console.error('[Network] Failed to parse data channel message:', err);
       }
+    };
+
+    channel.onerror = (error) => {
+      console.error(`[Network] Data channel error with ${peerId}:`, error);
     };
   }
 

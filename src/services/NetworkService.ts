@@ -79,7 +79,8 @@ export class NetworkService implements Service {
         } else {
           console.log(`[NetworkService] CALLBACK onHostMessage: ${message.type}`);
         }
-        // Host messages are handled by game controllers
+        // Emit event for game controllers to handle
+        this.config.eventBus.emit('network:host-message', { message });
       },
 
       onGuestMessage: (guestId, message) => {
@@ -98,7 +99,8 @@ export class NetworkService implements Service {
         } else {
           console.log(`[NetworkService] CALLBACK onGuestMessage: ${message.type} from ${guestId}`);
         }
-        // Guest messages are handled by game controllers
+        // Emit event for game controllers to handle
+        this.config.eventBus.emit('network:guest-message', { guestId, message });
       },
 
       onError: (message, errorType) => {

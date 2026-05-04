@@ -18,6 +18,8 @@ export interface GameEvents {
   'network:player-joined': { playerId: string; playerName: string };
   'network:player-left': { playerId: string };
   'network:player-color-changed': { playerId: string; color: number };
+  'network:host-message': { message: any };
+  'network:guest-message': { guestId: string; message: any };
 
   // Race events
   'race:countdown-start': { seconds: number };

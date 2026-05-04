@@ -17,6 +17,7 @@ import { expDecayBlend } from '../utils/math';
 import type { RoomInfo, InputState } from '../shared/types';
 import type { HostSnapshot, PlayerSnapshot } from '../shared/protocol';
 import { MultiplayerDebugOverlay } from '../debug/MultiplayerDebugOverlay';
+import { NetworkDiagnostics } from '../debug/NetworkDiagnostics';
 import * as THREE from 'three';
 
 function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {
@@ -84,6 +85,7 @@ export class RacingState implements GameState {
 
   // Debug overlay for browser verification
   private debugOverlay: MultiplayerDebugOverlay | null = null;
+  private netDiag = NetworkDiagnostics.getInstance();
 
   async enter(context: StateContext): Promise<void> {
     console.log('[RacingState] Enter started');
@@ -286,6 +288,10 @@ export class RacingState implements GameState {
         e.preventDefault();
         this.handlePause();
       }
+      // Debug: Print network diagnostics with D key
+      if (e.code === 'KeyD' && this.gameMode !== 'single') {
+        this.netDiag.printSummary();
+      }
     };
     window.addEventListener('keydown', this.onKeyDown);
 
@@ -449,6 +455,15 @@ export class RacingState implements GameState {
       this.context.eventBus.off('race:all-finished', this.handleRaceFinished);
       if (this.gameMode !== 'single') {
         this.context.eventBus.off('network:player-color-changed', this.handlePlayerColorChanged);
+        // Unsubscribe from network events
+        if (this.gameMode === 'multi_guest') {
+          this.context.eventBus.off('network:host-message', this.handleNetworkHostMessage);
+          this.context.eventBus.off('error:network', this.handleNetworkError);
+        }
+        if (this.gameMode === 'multi_host') {
+          this.context.eventBus.off('network:guest-message', this.handleNetworkGuestMessage);
+          this.context.eventBus.off('network:player-left', this.handlePlayerDisconnectEvent);
+        }
       }
     }
 
@@ -647,6 +662,7 @@ export class RacingState implements GameState {
       this.hostTick++;
 
       const snapshot = this.createSnapshot();
+      this.netDiag.log('Host sending snapshot', { tick: this.hostTick, playerCount: snapshot.players.length });
       this.networkService.broadcastToGuests(snapshot);
     }
   }
@@ -707,84 +723,71 @@ export class RacingState implements GameState {
   }
 
   private setupMultiplayerListeners(): void {
-    if (!this.networkService) return;
-
-    const client = this.networkService.getClient();
-    if (!client) return;
+    if (!this.networkService || !this.context) return;
 
     console.log('[RacingState] Setting up multiplayer listeners, mode:', this.gameMode);
 
     // Guest receives snapshots from Host
     if (this.gameMode === 'multi_guest') {
-      const originalOnHostMessage = client['callbacks'].onHostMessage;
-      client['callbacks'].onHostMessage = (message) => {
-        // Log first few snapshots for debugging
-        if (message.type === 'snapshot') {
-          this._snapshotCount++;
-          if (this._snapshotCount <= 3) {
-            console.log(`[RacingState] Guest received snapshot #${this._snapshotCount}:`, {
-              tick: message.tick,
-              playerCount: message.players.length,
-              players: message.players.map(p => ({ id: p.id, name: p.name }))
-            });
-          }
-          this.handleHostSnapshot(message);
-        } else if (message.type === 'race_config') {
-          console.log('[RacingState] Guest received race_config');
-          this.handleRaceConfig(message);
-        } else if (message.type === 'initial_position') {
-          console.log('[RacingState] Guest received initial_position');
-          this.handleHostInitialPosition(message);
-        }
-        if (originalOnHostMessage) {
-          originalOnHostMessage(message);
-        }
-      };
-      console.log('[RacingState] Guest listener installed for host messages');
+      this.context.eventBus.on('network:host-message', this.handleNetworkHostMessage);
+      this.context.eventBus.on('error:network', this.handleNetworkError);
+      console.log('[RacingState] Guest subscribed to network:host-message and error:network events');
     }
 
     // Host receives input from Guests
     if (this.gameMode === 'multi_host') {
-      const originalOnGuestMessage = client['callbacks'].onGuestMessage;
-      client['callbacks'].onGuestMessage = (guestId, message) => {
-        if (message.type === 'input') {
-          this.handleGuestInput(guestId, message);
-        } else if (message.type === 'initial_position') {
-          console.log(`[RacingState] Host received initial_position from ${guestId}`);
-          this.handleGuestInitialPosition(guestId, message);
-        }
-        if (originalOnGuestMessage) {
-          originalOnGuestMessage(guestId, message);
-        }
-      };
-
-      // Handle player disconnection
-      const originalOnPlayerLeft = client['callbacks'].onPlayerLeft;
-      client['callbacks'].onPlayerLeft = (playerId) => {
-        console.log(`[RacingState] Player ${playerId} disconnected during race`);
-        this.handlePlayerDisconnect(playerId);
-        if (originalOnPlayerLeft) {
-          originalOnPlayerLeft(playerId);
-        }
-      };
-      console.log('[RacingState] Host listener installed for guest messages');
-    }
-
-    // Guest handles host disconnection
-    if (this.gameMode === 'multi_guest') {
-      const originalOnError = client['callbacks'].onError;
-      client['callbacks'].onError = (message, errorType) => {
-        console.error(`[RacingState] Network error: ${message}, type: ${errorType}`);
-        // If host disconnects, show error and return to menu
-        if (errorType === 'host_disconnected' || message.includes('Connection') || message.includes('lost')) {
-          this.handleHostDisconnect();
-        }
-        if (originalOnError) {
-          originalOnError(message, errorType);
-        }
-      };
+      this.context.eventBus.on('network:guest-message', this.handleNetworkGuestMessage);
+      this.context.eventBus.on('network:player-left', this.handlePlayerDisconnectEvent);
+      console.log('[RacingState] Host subscribed to network:guest-message and network:player-left events');
     }
   }
+
+  private handleNetworkHostMessage = (data: { message: any }) => {
+    const message = data.message;
+
+    // Log first few snapshots for debugging
+    if (message.type === 'snapshot') {
+      this._snapshotCount++;
+      if (this._snapshotCount <= 3) {
+        console.log(`[RacingState] Guest received snapshot #${this._snapshotCount}:`, {
+          tick: message.tick,
+          playerCount: message.players.length,
+          players: message.players.map((p: any) => ({ id: p.id, name: p.name }))
+        });
+      }
+      this.handleHostSnapshot(message);
+    } else if (message.type === 'race_config') {
+      console.log('[RacingState] Guest received race_config');
+      this.handleRaceConfig(message);
+    } else if (message.type === 'initial_position') {
+      console.log('[RacingState] Guest received initial_position');
+      this.handleHostInitialPosition(message);
+    }
+  };
+
+  private handleNetworkGuestMessage = (data: { guestId: string; message: any }) => {
+    const { guestId, message } = data;
+
+    if (message.type === 'input') {
+      this.handleGuestInput(guestId, message);
+    } else if (message.type === 'initial_position') {
+      console.log(`[RacingState] Host received initial_position from ${guestId}`);
+      this.handleGuestInitialPosition(guestId, message);
+    }
+  };
+
+  private handlePlayerDisconnectEvent = (data: { playerId: string }) => {
+    console.log(`[RacingState] Player ${data.playerId} disconnected during race`);
+    this.handlePlayerDisconnect(data.playerId);
+  };
+
+  private handleNetworkError = (data: { message: string; errorType?: any }) => {
+    console.error(`[RacingState] Network error: ${data.message}, type: ${data.errorType}`);
+    // If host disconnects, show error and return to menu
+    if (data.errorType === 'host_disconnected' || data.message.includes('Connection') || data.message.includes('lost')) {
+      this.handleHostDisconnect();
+    }
+  };
 
   private sendRaceConfig(trackLength: number): void {
     if (!this.networkService) return;
@@ -869,6 +872,8 @@ export class RacingState implements GameState {
     const now = performance.now();
     this._lastSnapshotTimestamp = now;
 
+    this.netDiag.log('Guest received snapshot', { tick: snapshot.tick, playerCount: snapshot.players.length });
+
     // If OpponentController not ready yet, buffer the snapshot
     if (!this.opponentController) {
       this.pendingSnapshots.push({ snapshot, timestamp: now });
@@ -889,6 +894,8 @@ export class RacingState implements GameState {
       });
     }
 
+    this.netDiag.log('Processing snapshot', { tick: snapshot.tick, processedCount: this._processedSnapshotCount });
+
     // Process all players in snapshot
     snapshot.players.forEach((playerSnapshot: any) => {
       if (playerSnapshot.id === this.playerId) {
@@ -902,6 +909,7 @@ export class RacingState implements GameState {
         const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
         if (!existingMesh) {
           console.log(`[RacingState] Creating opponent mesh for host ${playerSnapshot.id} (${playerSnapshot.name})`);
+          this.netDiag.log('Creating opponent mesh', { id: playerSnapshot.id, name: playerSnapshot.name });
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
@@ -917,6 +925,7 @@ export class RacingState implements GameState {
             rot: playerSnapshot.rotation
           });
         }
+        this.netDiag.log('Updating remote player', { id: playerSnapshot.id, pos: playerSnapshot.position });
         this.opponentController!.updateRemotePlayer(playerSnapshot, now);
       }
     });
