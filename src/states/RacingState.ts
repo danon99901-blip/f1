@@ -15,7 +15,7 @@ import { createGround } from '../scene';
 import { createHud, type Gear } from '../hud/hud';
 import { expDecayBlend } from '../utils/math';
 import type { RoomInfo, InputState } from '../shared/types';
-import type { HostSnapshot } from '../shared/protocol';
+import type { HostSnapshot, PlayerSnapshot } from '../shared/protocol';
 import * as THREE from 'three';
 
 function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {

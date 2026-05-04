@@ -10,7 +10,7 @@ describe('Interpolator', () => {
   });
 
   const createSnapshot = (
-    time: number,
+    _time: number,
     position: [number, number, number],
     rotation: [number, number, number, number] = [0, 0, 0, 1],
     velocity: [number, number, number] = [0, 0, 0]

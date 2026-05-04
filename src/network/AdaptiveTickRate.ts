@@ -82,19 +82,35 @@ export class AdaptiveTickRate {
   }
 
   /**
-   * Get current tick rate with smooth interpolation
-   * Call this every frame to get the current Hz value
+   * Update smooth interpolation towards target Hz
+   * Call this once per frame before reading getCurrentHz()
+   * @param deltaTime Time since last update in seconds (optional, uses smoothingFactor if not provided)
    */
-  getCurrentHz(): number {
+  update(deltaTime?: number): void {
     // Smooth transition towards target
     const diff = this.targetHz - this.currentHz;
-    this.currentHz += diff * this.config.smoothingFactor;
+
+    if (deltaTime !== undefined) {
+      // Time-based smoothing for consistent behavior at any framerate
+      const smoothingRate = 5; // Hz per second
+      const maxChange = smoothingRate * deltaTime;
+      this.currentHz += Math.sign(diff) * Math.min(Math.abs(diff), maxChange);
+    } else {
+      // Factor-based smoothing (legacy behavior)
+      this.currentHz += diff * this.config.smoothingFactor;
+    }
 
     // Snap to target if very close
     if (Math.abs(diff) < 0.5) {
       this.currentHz = this.targetHz;
     }
+  }
 
+  /**
+   * Get current tick rate (pure getter, no side effects)
+   * Call update() first to ensure fresh value
+   */
+  getCurrentHz(): number {
     return Math.round(this.currentHz);
   }
 

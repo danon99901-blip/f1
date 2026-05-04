@@ -122,8 +122,8 @@ describe('AdaptiveTickRate', () => {
     });
   });
 
-  describe('getCurrentHz with smoothing', () => {
-    it('should smoothly transition to target', () => {
+  describe('update and getCurrentHz', () => {
+    it('should smoothly transition to target with update()', () => {
       // Set up for increase
       for (let i = 0; i < 10; i++) {
         tickRate.updateFromRTT(20, mockTime);
@@ -135,8 +135,11 @@ describe('AdaptiveTickRate', () => {
       expect(tickRate.getTargetHz()).toBe(60);
 
       // Current should gradually approach target
+      tickRate.update();
       const hz1 = tickRate.getCurrentHz();
+      tickRate.update();
       const hz2 = tickRate.getCurrentHz();
+      tickRate.update();
       const hz3 = tickRate.getCurrentHz();
 
       expect(hz1).toBeLessThan(60);
@@ -153,9 +156,9 @@ describe('AdaptiveTickRate', () => {
       mockTime += 2000;
       tickRate.updateFromRTT(20, mockTime);
 
-      // Call getCurrentHz multiple times until stable
+      // Call update multiple times until stable
       for (let i = 0; i < 50; i++) {
-        tickRate.getCurrentHz();
+        tickRate.update();
       }
 
       expect(tickRate.getCurrentHz()).toBe(60);
@@ -176,6 +179,7 @@ describe('AdaptiveTickRate', () => {
 
       // Current should monotonically approach target (never overshoot)
       for (let i = 0; i < 100; i++) {
+        tickRate.update();
         const current = tickRate.getCurrentHz();
 
         // Should be moving towards target
@@ -191,6 +195,38 @@ describe('AdaptiveTickRate', () => {
 
       // Should eventually reach target
       expect(tickRate.getCurrentHz()).toBeCloseTo(target, 0);
+    });
+
+    it('should support time-based smoothing with deltaTime', () => {
+      // Set up for increase
+      for (let i = 0; i < 10; i++) {
+        tickRate.updateFromRTT(20, mockTime);
+        mockTime += 100;
+      }
+      mockTime += 2000;
+      tickRate.updateFromRTT(20, mockTime);
+
+      expect(tickRate.getTargetHz()).toBe(60);
+
+      // Simulate 60 FPS (16.67ms per frame)
+      const deltaTime = 1 / 60;
+      tickRate.update(deltaTime);
+      const hz1 = tickRate.getCurrentHz();
+      tickRate.update(deltaTime);
+      const hz2 = tickRate.getCurrentHz();
+
+      expect(hz1).toBeLessThan(60);
+      expect(hz2).toBeGreaterThan(hz1);
+    });
+
+    it('should be idempotent - multiple getCurrentHz() calls return same value', () => {
+      tickRate.update();
+      const hz1 = tickRate.getCurrentHz();
+      const hz2 = tickRate.getCurrentHz();
+      const hz3 = tickRate.getCurrentHz();
+
+      expect(hz1).toBe(hz2);
+      expect(hz2).toBe(hz3);
     });
   });
 
@@ -215,7 +251,7 @@ describe('AdaptiveTickRate', () => {
 
       // Let it smooth towards target
       for (let i = 0; i < 10; i++) {
-        tickRate.getCurrentHz();
+        tickRate.update();
       }
 
       const interval2 = tickRate.getTickIntervalMs();

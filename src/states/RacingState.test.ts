@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RacingState } from './RacingState';
-import type { GameContext } from '../core/GameStateMachine';
+import type { StateContext } from '../core/GameStateMachine';
 import type { EventBus } from '../core/EventBus';
 import type { PhysicsService } from '../services/PhysicsService';
 import type { RenderService } from '../services/RenderService';
@@ -22,7 +22,7 @@ vi.mock('../track/track', () => ({
 
 describe('RacingState - Multiplayer Synchronization', () => {
   let racingState: RacingState;
-  let mockContext: GameContext;
+  let mockContext: StateContext;
   let mockEventBus: EventBus;
   let mockPhysicsService: PhysicsService;
   let mockRenderService: RenderService;
@@ -483,13 +483,13 @@ describe('RacingState - Multiplayer Synchronization', () => {
       } as any;
 
       mockPhysicsService.createVehicle = vi.fn(() => mockVehicle);
-      mockPhysicsService.getVehicle = vi.fn(() => null); // Vehicle doesn't exist yet
+      mockPhysicsService.getVehicle = vi.fn(() => undefined); // Vehicle doesn't exist yet
 
       (racingState as any).gameMode = 'multi_host';
       (racingState as any).playerId = 'host-id';
       (racingState as any).physicsService = mockPhysicsService;
       (racingState as any).renderService = mockRenderService;
-      (racingState as any).roomInfo = mockContext.data.roomInfo;
+      (racingState as any).roomInfo = mockContext.data?.roomInfo;
 
       // Manually create guest vehicle
       const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
