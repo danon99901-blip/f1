@@ -532,20 +532,25 @@ export class RacingState implements GameState {
 
     console.log(`[RacingState] Base spawn position:`, baseSpawnPos);
 
-    // Create visual meshes for all other players
-    this.roomInfo.players.forEach(player => {
-      if (player.id !== this.playerId) {
-        console.log(`[RacingState] Creating opponent mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
-        this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
+    // Guest: Create visual meshes for all other players (host)
+    // Host: Guest vehicles already have physics meshes, no need for OpponentController meshes
+    if (this.gameMode === 'multi_guest') {
+      this.roomInfo.players.forEach(player => {
+        if (player.id !== this.playerId) {
+          console.log(`[RacingState] Creating opponent mesh: ${player.id} (${player.name}) with color 0x${player.carColor.toString(16)}`);
+          this.opponentController!.addRemotePlayer(player.id, player.name, player.carColor, false);
 
-        // Calculate spawn position for this opponent
-        const opponentSpawnPos = this.getOpponentSpawnPosition(player.id, baseSpawnPos);
-        console.log(`[RacingState] Setting opponent ${player.id} initial position:`, opponentSpawnPos);
-        this.opponentController!.setInitialPosition(player.id, opponentSpawnPos, baseSpawnRot);
-      } else {
-        console.log(`[RacingState] Skipping self: ${player.id}`);
-      }
-    });
+          // Calculate spawn position for this opponent
+          const opponentSpawnPos = this.getOpponentSpawnPosition(player.id, baseSpawnPos);
+          console.log(`[RacingState] Setting opponent ${player.id} initial position:`, opponentSpawnPos);
+          this.opponentController!.setInitialPosition(player.id, opponentSpawnPos, baseSpawnRot);
+        } else {
+          console.log(`[RacingState] Skipping self: ${player.id}`);
+        }
+      });
+    } else {
+      console.log(`[RacingState] Host mode: Guest vehicles use physics meshes, skipping OpponentController mesh creation`);
+    }
 
     // Send first snapshot with validated position
     if (this.gameMode === 'multi_host') {
@@ -1132,36 +1137,12 @@ export class RacingState implements GameState {
 
   private updateGuestVehicles(dt: number): void {
     console.log('[HOST_GUEST_UPDATE] Updating %d guest vehicles, dt=%.3f', this.guestVehicles.size, dt);
-    this.guestVehicles.forEach((guestData, guestId) => {
-      const input = guestData.lastInput;
-      console.log('[HOST_GUEST_UPDATE] Applying input to guest %s: throttle=%.2f, brake=%.2f, steer=%.2f',
-        guestId, input.throttle, input.brake, input.steer);
-
-      // Get position before update
-      const posBefore = guestData.vehicle.rigidBody.translation();
-      const speedBefore = guestData.vehicle.getSpeedKmh();
-
+    this.guestVehicles.forEach((guestData) => {
       // Apply the latest input to the guest vehicle
       guestData.controller.update(guestData.lastInput, dt);
 
       // CRITICAL: Sync visual mesh with physics body after update
       guestData.vehicle.syncVisuals();
-
-      // Get position after update
-      const posAfter = guestData.vehicle.rigidBody.translation();
-      const speedAfter = guestData.vehicle.getSpeedKmh();
-
-      console.log('[HOST_GUEST_UPDATE] Guest %s: before pos=(%.2f, %.2f, %.2f) speed=%.1f, after pos=(%.2f, %.2f, %.2f) speed=%.1f',
-        guestId, posBefore.x, posBefore.y, posBefore.z, speedBefore,
-        posAfter.x, posAfter.y, posAfter.z, speedAfter);
-
-      // Update OpponentController visual mesh to match physics body
-      if (this.opponentController) {
-        const position = new THREE.Vector3(posAfter.x, posAfter.y, posAfter.z);
-        const rotation = guestData.vehicle.rigidBody.rotation();
-        const quaternion = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
-        this.opponentController.updateRemotePlayerDirect(guestId, position, quaternion);
-      }
     });
   }
 
