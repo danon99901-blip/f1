@@ -16,6 +16,7 @@ import { createHud, type Gear } from '../hud/hud';
 import { expDecayBlend } from '../utils/math';
 import type { RoomInfo, InputState } from '../shared/types';
 import type { HostSnapshot, PlayerSnapshot } from '../shared/protocol';
+import { MultiplayerDebugOverlay } from '../debug/MultiplayerDebugOverlay';
 import * as THREE from 'three';
 
 function estimateGear(forwardSpeedKmh: number, throttle: number, brake: number): Gear {
@@ -74,6 +75,15 @@ export class RacingState implements GameState {
 
   // Buffer for snapshots that arrive before OpponentController is created
   private pendingSnapshots: Array<{ snapshot: any; timestamp: number }> = [];
+
+  // Debug counters for logging
+  private _snapshotCount = 0;
+  private _bufferLogCount = 0;
+  private _processedSnapshotCount = 0;
+  private _lastSnapshotTimestamp = 0;
+
+  // Debug overlay for browser verification
+  private debugOverlay: MultiplayerDebugOverlay | null = null;
 
   async enter(context: StateContext): Promise<void> {
     console.log('[RacingState] Enter started');
@@ -228,6 +238,12 @@ export class RacingState implements GameState {
     // Setup HUD
     this.hud = createHud();
     document.body.appendChild(this.hud.root);
+
+    // Setup debug overlay for multiplayer
+    if (this.gameMode !== 'single') {
+      this.debugOverlay = new MultiplayerDebugOverlay();
+      console.log('[RacingState] Debug overlay created');
+    }
 
     console.log('[RacingState] Enabling input...');
     // Enable input
@@ -400,6 +416,29 @@ export class RacingState implements GameState {
       });
     }
 
+    // Update debug overlay for multiplayer
+    if (this.debugOverlay && this.gameMode !== 'single') {
+      const opponentsVisible = this.opponentController
+        ? Array.from(this.roomInfo?.players ?? [])
+            .filter(p => p.id !== this.playerId)
+            .map(p => ({
+              id: p.id,
+              name: p.name,
+              visible: this.opponentController!.getRemotePlayerMesh(p.id) !== null
+            }))
+        : [];
+
+      this.debugOverlay.update({
+        mode: this.gameMode,
+        playerId: this.playerId ?? 'unknown',
+        roomCode: this.roomInfo?.roomId ?? 'unknown',
+        snapshotsReceived: this._snapshotCount,
+        snapshotsProcessed: this._processedSnapshotCount,
+        opponentsVisible,
+        lastSnapshotTime: this._lastSnapshotTimestamp
+      });
+    }
+
     // Render
     this.renderService.setSpeed(vehicle.getSpeedKmh());
     this.renderService.render(dt);
@@ -425,6 +464,11 @@ export class RacingState implements GameState {
     if (this.hud) {
       document.body.removeChild(this.hud.root);
       this.hud = null;
+    }
+
+    if (this.debugOverlay) {
+      this.debugOverlay.destroy();
+      this.debugOverlay = null;
     }
 
     // Clean up Three.js scene objects to prevent memory leak
@@ -668,21 +712,35 @@ export class RacingState implements GameState {
     const client = this.networkService.getClient();
     if (!client) return;
 
+    console.log('[RacingState] Setting up multiplayer listeners, mode:', this.gameMode);
+
     // Guest receives snapshots from Host
     if (this.gameMode === 'multi_guest') {
       const originalOnHostMessage = client['callbacks'].onHostMessage;
       client['callbacks'].onHostMessage = (message) => {
+        // Log first few snapshots for debugging
         if (message.type === 'snapshot') {
+          this._snapshotCount++;
+          if (this._snapshotCount <= 3) {
+            console.log(`[RacingState] Guest received snapshot #${this._snapshotCount}:`, {
+              tick: message.tick,
+              playerCount: message.players.length,
+              players: message.players.map(p => ({ id: p.id, name: p.name }))
+            });
+          }
           this.handleHostSnapshot(message);
         } else if (message.type === 'race_config') {
+          console.log('[RacingState] Guest received race_config');
           this.handleRaceConfig(message);
         } else if (message.type === 'initial_position') {
+          console.log('[RacingState] Guest received initial_position');
           this.handleHostInitialPosition(message);
         }
         if (originalOnHostMessage) {
           originalOnHostMessage(message);
         }
       };
+      console.log('[RacingState] Guest listener installed for host messages');
     }
 
     // Host receives input from Guests
@@ -692,6 +750,7 @@ export class RacingState implements GameState {
         if (message.type === 'input') {
           this.handleGuestInput(guestId, message);
         } else if (message.type === 'initial_position') {
+          console.log(`[RacingState] Host received initial_position from ${guestId}`);
           this.handleGuestInitialPosition(guestId, message);
         }
         if (originalOnGuestMessage) {
@@ -708,6 +767,7 @@ export class RacingState implements GameState {
           originalOnPlayerLeft(playerId);
         }
       };
+      console.log('[RacingState] Host listener installed for guest messages');
     }
 
     // Guest handles host disconnection
@@ -807,11 +867,26 @@ export class RacingState implements GameState {
 
   private handleHostSnapshot(snapshot: any): void {
     const now = performance.now();
+    this._lastSnapshotTimestamp = now;
 
     // If OpponentController not ready yet, buffer the snapshot
     if (!this.opponentController) {
       this.pendingSnapshots.push({ snapshot, timestamp: now });
+      this._bufferLogCount++;
+      if (this._bufferLogCount <= 3) {
+        console.log(`[RacingState] Buffering snapshot #${this._bufferLogCount} (OpponentController not ready yet)`);
+      }
       return;
+    }
+
+    // Log first few snapshots being processed
+    this._processedSnapshotCount++;
+    if (this._processedSnapshotCount <= 3) {
+      console.log(`[RacingState] Processing snapshot #${this._processedSnapshotCount}:`, {
+        tick: snapshot.tick,
+        playerCount: snapshot.players.length,
+        myId: this.playerId
+      });
     }
 
     // Process all players in snapshot
@@ -823,9 +898,10 @@ export class RacingState implements GameState {
           this.clientPrediction.clearOldInputs(snapshot.timestamp);
         }
       } else {
-        // Remote player - add if not exists
+        // Remote player (host) - add if not exists
         const existingMesh = this.opponentController!.getRemotePlayerMesh(playerSnapshot.id);
         if (!existingMesh) {
+          console.log(`[RacingState] Creating opponent mesh for host ${playerSnapshot.id} (${playerSnapshot.name})`);
           this.opponentController!.addRemotePlayer(
             playerSnapshot.id,
             playerSnapshot.name,
@@ -835,6 +911,12 @@ export class RacingState implements GameState {
         }
 
         // Update opponent with snapshot
+        if (this._processedSnapshotCount <= 3) {
+          console.log(`[RacingState] Updating remote player ${playerSnapshot.id} position:`, {
+            pos: playerSnapshot.position,
+            rot: playerSnapshot.rotation
+          });
+        }
         this.opponentController!.updateRemotePlayer(playerSnapshot, now);
       }
     });

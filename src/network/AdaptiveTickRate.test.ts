@@ -210,13 +210,17 @@ describe('AdaptiveTickRate', () => {
 
       // Simulate 60 FPS (16.67ms per frame)
       const deltaTime = 1 / 60;
-      tickRate.update(deltaTime);
       const hz1 = tickRate.getCurrentHz();
-      tickRate.update(deltaTime);
+
+      // Run enough updates to see measurable change after rounding
+      for (let i = 0; i < 20; i++) {
+        tickRate.update(deltaTime);
+      }
       const hz2 = tickRate.getCurrentHz();
 
       expect(hz1).toBeLessThan(60);
       expect(hz2).toBeGreaterThan(hz1);
+      expect(hz2).toBeLessThanOrEqual(60);
     });
 
     it('should be idempotent - multiple getCurrentHz() calls return same value', () => {
@@ -288,9 +292,10 @@ describe('AdaptiveTickRate', () => {
       mockTime += 2000;
       tickRate.updateFromRTT(20, mockTime);
 
-      // Let it settle
+      // Let it settle by calling update() to converge currentHz to targetHz
       for (let i = 0; i < 100; i++) {
-        tickRate.getCurrentHz();
+        mockTime += 16; // ~60fps frame time
+        tickRate.update(mockTime);
       }
 
       expect(tickRate.isStable()).toBe(true);
