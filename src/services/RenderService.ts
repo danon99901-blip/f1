@@ -22,6 +22,15 @@ export class RenderService implements Service {
     this.camera = sceneData.camera;
     this.renderer = sceneData.renderer;
 
+    // Allow disabling postprocessing via ?nofx=1 query param. Useful for fps
+    // diagnostics — if fps jumps with nofx=1, postprocessing is the bottleneck;
+    // if fps stays the same, look at scene complexity, shadows, or pixelRatio.
+    const url = new URL(window.location.href);
+    const disableFx = url.searchParams.get('nofx') === '1';
+    if (disableFx) {
+      console.warn('[RenderService] Postprocessing DISABLED via ?nofx=1 query param');
+    }
+
     // Debug canvas
     console.log('[RenderService] Canvas info:', {
       width: this.renderer.domElement.width,
@@ -32,15 +41,17 @@ export class RenderService implements Service {
       zIndex: window.getComputedStyle(this.renderer.domElement).zIndex,
     });
 
-    // Lazy load composer (non-blocking)
-    void loadComposer(this.renderer, this.scene, this.camera)
-      .then((composer) => {
-        this.composer = composer;
-        console.log('[RenderService] Post-processing loaded');
-      })
-      .catch((err) => {
-        console.error('[RenderService] Failed to load composer:', err);
-      });
+    // Lazy load composer (non-blocking) unless disabled by query param
+    if (!disableFx) {
+      void loadComposer(this.renderer, this.scene, this.camera)
+        .then((composer) => {
+          this.composer = composer;
+          console.log('[RenderService] Post-processing loaded');
+        })
+        .catch((err) => {
+          console.error('[RenderService] Failed to load composer:', err);
+        });
+    }
 
     // Handle window resize
     this.resizeHandler = () => this.handleResize();
