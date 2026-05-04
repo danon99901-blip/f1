@@ -1353,4 +1353,302 @@ describe('RacingState - Multiplayer Synchronization', () => {
       );
     });
   });
+
+  describe('Host: lastInput Application to Guest Controllers', () => {
+    it('should apply exact lastInput values from guestVehicles map to controller.update', () => {
+      // Setup: Create mock player vehicle
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      // Setup: Create mock guest vehicle
+      const mockGuestVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 10, y: 1, z: 5 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 20 })),
+        },
+        getSpeedKmh: vi.fn(() => 72),
+        getForwardSpeedKmh: vi.fn(() => 72),
+        syncVisuals: vi.fn(),
+      } as any;
+
+      const mockGuestController = {
+        update: vi.fn(),
+      } as any;
+
+      // Setup: Mock race controller
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 2),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      // Setup: Configure racing state
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).playerId = 'host-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      // Add guest vehicle with specific lastInput
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      const initialInput = { throttle: 0.3, brake: 0.1, steer: -0.5 };
+      guestVehicles.set('guest-id', {
+        vehicle: mockGuestVehicle,
+        controller: mockGuestController,
+        lastInput: initialInput,
+      });
+
+      // Execute: First update with initial input
+      racingState.update(0.016);
+
+      // Verify: Controller received exact initial input
+      expect(mockGuestController.update).toHaveBeenCalledWith(
+        initialInput,
+        0.016
+      );
+      expect(mockGuestController.update).toHaveBeenCalledTimes(1);
+
+      // Reset mock
+      mockGuestController.update.mockClear();
+
+      // Modify lastInput (simulating new input from network)
+      const updatedInput = { throttle: 0.9, brake: 0, steer: 0.7 };
+      const guestData = guestVehicles.get('guest-id');
+      guestData.lastInput = updatedInput;
+
+      // Execute: Second update with modified input
+      racingState.update(0.016);
+
+      // Verify: Controller received exact updated input
+      expect(mockGuestController.update).toHaveBeenCalledWith(
+        updatedInput,
+        0.016
+      );
+      expect(mockGuestController.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('should apply different lastInput values to different guest controllers', () => {
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      const mockGuestVehicles = [
+        {
+          rigidBody: {
+            translation: vi.fn(() => ({ x: 10, y: 1, z: 5 })),
+            rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+            linvel: vi.fn(() => ({ x: 0, y: 0, z: 20 })),
+          },
+          getSpeedKmh: vi.fn(() => 72),
+          getForwardSpeedKmh: vi.fn(() => 72),
+          syncVisuals: vi.fn(),
+        },
+        {
+          rigidBody: {
+            translation: vi.fn(() => ({ x: 15, y: 1, z: 8 })),
+            rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+            linvel: vi.fn(() => ({ x: 0, y: 0, z: 25 })),
+          },
+          getSpeedKmh: vi.fn(() => 90),
+          getForwardSpeedKmh: vi.fn(() => 90),
+          syncVisuals: vi.fn(),
+        },
+      ] as any[];
+
+      const mockGuestControllers = [
+        { update: vi.fn() },
+        { update: vi.fn() },
+      ] as any[];
+
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 3),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).playerId = 'host-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      // Add two guests with different inputs
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      const input1 = { throttle: 0.2, brake: 0.5, steer: 0.1 };
+      const input2 = { throttle: 1.0, brake: 0, steer: -0.8 };
+
+      guestVehicles.set('guest-1', {
+        vehicle: mockGuestVehicles[0],
+        controller: mockGuestControllers[0],
+        lastInput: input1,
+      });
+      guestVehicles.set('guest-2', {
+        vehicle: mockGuestVehicles[1],
+        controller: mockGuestControllers[1],
+        lastInput: input2,
+      });
+
+      // Execute
+      racingState.update(0.016);
+
+      // Verify: Each controller received its own specific input
+      expect(mockGuestControllers[0].update).toHaveBeenCalledWith(input1, 0.016);
+      expect(mockGuestControllers[1].update).toHaveBeenCalledWith(input2, 0.016);
+
+      // Verify: Inputs are not mixed up
+      expect(mockGuestControllers[0].update).not.toHaveBeenCalledWith(input2, expect.any(Number));
+      expect(mockGuestControllers[1].update).not.toHaveBeenCalledWith(input1, expect.any(Number));
+    });
+
+    it('should handle zero and extreme input values correctly', () => {
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      const mockGuestVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 10, y: 1, z: 5 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 20 })),
+        },
+        getSpeedKmh: vi.fn(() => 72),
+        getForwardSpeedKmh: vi.fn(() => 72),
+        syncVisuals: vi.fn(),
+      } as any;
+
+      const mockGuestController = {
+        update: vi.fn(),
+      } as any;
+
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 2),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).playerId = 'host-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+
+      // Test with all zeros
+      const zeroInput = { throttle: 0, brake: 0, steer: 0 };
+      guestVehicles.set('guest-id', {
+        vehicle: mockGuestVehicle,
+        controller: mockGuestController,
+        lastInput: zeroInput,
+      });
+
+      racingState.update(0.016);
+
+      expect(mockGuestController.update).toHaveBeenCalledWith(zeroInput, 0.016);
+      mockGuestController.update.mockClear();
+
+      // Test with maximum values
+      const maxInput = { throttle: 1.0, brake: 1.0, steer: 1.0 };
+      guestVehicles.get('guest-id').lastInput = maxInput;
+
+      racingState.update(0.016);
+
+      expect(mockGuestController.update).toHaveBeenCalledWith(maxInput, 0.016);
+      mockGuestController.update.mockClear();
+
+      // Test with negative steer
+      const negativeSteerInput = { throttle: 0.5, brake: 0, steer: -1.0 };
+      guestVehicles.get('guest-id').lastInput = negativeSteerInput;
+
+      racingState.update(0.016);
+
+      expect(mockGuestController.update).toHaveBeenCalledWith(negativeSteerInput, 0.016);
+    });
+  });
 });
