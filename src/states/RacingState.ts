@@ -40,6 +40,10 @@ export class RacingState implements GameState {
   private hud: ReturnType<typeof createHud> | null = null;
   private cameraTarget = new THREE.Vector3();
   private cameraOffset = new THREE.Vector3(0, 4, 10);
+  // Scratch vectors for camera math each frame. Avoids two clone() allocations
+  // per frame in update() — those add up to GC pauses over a long race.
+  private _cameraOffsetWorld = new THREE.Vector3();
+  private _cameraDesiredPos = new THREE.Vector3();
   private totalLaps = 10;
   private gameMode: 'single' | 'multi_host' | 'multi_guest' = 'single';
   private playerArcDistance = 0;
@@ -421,14 +425,17 @@ export class RacingState implements GameState {
     }
     if (profile) { profile.network += performance.now() - t; t = performance.now(); }
 
-    // Update camera with frame-rate independent smoothing
+    // Update camera with frame-rate independent smoothing. Both vector ops
+    // reuse pre-allocated scratch (`_cameraOffsetWorld`, `_cameraDesiredPos`)
+    // instead of `clone()` — see field comment for rationale.
     this.cameraTarget.copy(vehicle.chassisMesh.position);
-    const offsetWorld = this.cameraOffset
-      .clone()
+    this._cameraOffsetWorld
+      .copy(this.cameraOffset)
       .applyQuaternion(vehicle.chassisMesh.quaternion);
     const camera = this.renderService.getCamera();
     const cameraBlend = expDecayBlend(5.0, dt);
-    camera.position.lerp(this.cameraTarget.clone().add(offsetWorld), cameraBlend);
+    this._cameraDesiredPos.copy(this.cameraTarget).add(this._cameraOffsetWorld);
+    camera.position.lerp(this._cameraDesiredPos, cameraBlend);
     camera.lookAt(this.cameraTarget);
     if (profile) { profile.camera += performance.now() - t; t = performance.now(); }
 

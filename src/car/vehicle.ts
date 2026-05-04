@@ -362,6 +362,28 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
   };
   const tmpNose = new THREE.Vector3();
   const tmpChassisQ = new THREE.Quaternion();
+  // Scratch objects for syncVisuals — reused every frame instead of fresh
+  // allocations. Each vehicle ran 16 mallocs per frame (4 wheels × 4 objects),
+  // and at 6 cars × 60fps that was ~5800 short-lived objects per second
+  // triggering recurring V8 GC pauses up to 100ms. These scratch objects let
+  // syncVisuals do zero allocations in steady state.
+  const _wheelLocalPos = new THREE.Vector3();
+  const _wheelSteerQ = new THREE.Quaternion();
+  const _yAxis = new THREE.Vector3(0, 1, 0);
+
+  // Bump diagnostic on/off. Reads URL once on vehicle creation. When off the
+  // diagnostic block below is gated to a single boolean check, so the per-frame
+  // cost is essentially zero. Only enable for actual debug sessions —
+  // ?bumpdebug=1 — because the raycast + console.warn it does are expensive
+  // and contributed to gc-driven frame spikes.
+  let BUMP_DEBUG_ENABLED = false;
+  if (typeof window !== 'undefined') {
+    try {
+      BUMP_DEBUG_ENABLED = new URL(window.location.href).searchParams.get('bumpdebug') === '1';
+    } catch {
+      // ignore
+    }
+  }
 
   // Bump diagnostic: when suspension snaps shut by more than this in one tick,
   // we manually re-cast the wheel ray and print what was hit. Threshold chosen
@@ -559,7 +581,14 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
 
     // Bump diagnostic — runs BEFORE we overwrite dbg.suspensionLengths so
     // the prev-frame value is still in dbg.suspensionLengths[i].
-    {
+    //
+    // Disabled by default. When the racing car drives over a kerb each wheel
+    // can trigger this branch, which then does a Rapier raycast plus a long
+    // console.warn with string concatenation. On a bumpy lap this fired
+    // dozens of times per frame and was a major contributor to GC spikes
+    // and main-thread blocking. Re-enable with ?bumpdebug=1 if the
+    // suspension-snap bug ever needs investigation again.
+    if (BUMP_DEBUG_ENABLED) {
       const ct = rigidBody.translation();
       const cr = rigidBody.rotation();
       diagChassisQ.set(cr.x, cr.y, cr.z, cr.w);
@@ -647,19 +676,19 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
       const suspLen = controller.wheelSuspensionLength(i) ?? SUSPENSION_REST_LENGTH;
       if (!conn || !dirCs) continue;
 
-      const localPos = new THREE.Vector3(
+      // Reuse scratch Vector3 instead of `new THREE.Vector3(...)` per wheel.
+      _wheelLocalPos.set(
         conn.x + dirCs.x * suspLen,
         conn.y + dirCs.y * suspLen,
         conn.z + dirCs.z * suspLen,
       );
-      localPos.applyQuaternion(chassisMesh.quaternion);
-      wheelGroup.position.copy(chassisMesh.position).add(localPos);
+      _wheelLocalPos.applyQuaternion(chassisMesh.quaternion);
+      wheelGroup.position.copy(chassisMesh.position).add(_wheelLocalPos);
 
-      const steerQ = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        controller.wheelSteering(i) ?? 0,
-      );
-      wheelGroup.quaternion.copy(chassisMesh.quaternion).multiply(steerQ);
+      // Reuse scratch Quaternion + axis Vector3 instead of allocating both
+      // per wheel.
+      _wheelSteerQ.setFromAxisAngle(_yAxis, controller.wheelSteering(i) ?? 0);
+      wheelGroup.quaternion.copy(chassisMesh.quaternion).multiply(_wheelSteerQ);
 
       const rollMesh = (wheelGroup as { __rollMesh?: THREE.Mesh }).__rollMesh;
       if (rollMesh) {
