@@ -90,6 +90,15 @@ export class RacingState implements GameState {
   private _handleInputCount = 0;
   private _guestEventCount = 0;
 
+  // Per-phase profiler. Initialized lazily on first update() call when ?profile=1.
+  // Each field accumulates ms spent in that phase across the current 1-second
+  // bucket; dumped + reset every second.
+  private _profile: {
+    input: number; player: number; opponents: number; physics: number;
+    race: number; network: number; camera: number; misc: number;
+    frames: number; lastDump: number;
+  } | null = null;
+
   // Debug overlay for browser verification
   private debugOverlay: MultiplayerDebugOverlay | null = null;
   private netDiag = NetworkDiagnostics.getInstance();
@@ -324,14 +333,37 @@ export class RacingState implements GameState {
     if (!this.physicsService || !this.renderService || !this.inputService) return;
     if (!this.playerController || !this.raceController) return;
 
+    // Per-phase profiling: enabled when ?profile=1 query param is present. We bin
+    // measurements into named phases so the final 1Hz dump shows exactly which
+    // part of the frame is over budget. Lazily initialize on first call.
+    // Guard against `window` being undefined (test environment).
+    if (this._profile === null && typeof window !== 'undefined') {
+      try {
+        if (new URL(window.location.href).searchParams.get('profile') === '1') {
+          this._profile = {
+            input: 0, player: 0, opponents: 0, physics: 0,
+            race: 0, network: 0, camera: 0, misc: 0,
+            frames: 0, lastDump: performance.now(),
+          };
+          console.warn('[RacingState] Per-phase profiling ENABLED via ?profile=1');
+        }
+      } catch {
+        // window.location may not be parseable in some test contexts; ignore.
+      }
+    }
+    const profile = this._profile;
+
     // Get input
+    let t = profile ? performance.now() : 0;
     const input = this.inputService.getInput();
+    if (profile) { profile.input += performance.now() - t; t = performance.now(); }
 
     // Update player
     this.playerController.update(input, dt);
     const vehicle = this.playerController.getVehicle();
     const forwardSpeedKmh = vehicle.getForwardSpeedKmh();
     this.playerArcDistance += (forwardSpeedKmh / 3.6) * dt;
+    if (profile) { profile.player += performance.now() - t; t = performance.now(); }
 
     // Initialize opponents in multiplayer after first physics update
     if (!this.opponentInitialized && this.gameMode !== 'single' && this.opponentController) {
@@ -363,12 +395,15 @@ export class RacingState implements GameState {
     if (this.gameMode === 'multi_host') {
       this.updateGuestVehicles(dt);
     }
+    if (profile) { profile.opponents += performance.now() - t; t = performance.now(); }
 
     // Update physics
     this.physicsService.step(dt);
+    if (profile) { profile.physics += performance.now() - t; t = performance.now(); }
 
     // Update race controller
     this.raceController.update(dt);
+    if (profile) { profile.race += performance.now() - t; t = performance.now(); }
 
     // Multiplayer: Host broadcasts snapshots
     if (this.gameMode === 'multi_host' && this.networkService) {
@@ -384,6 +419,7 @@ export class RacingState implements GameState {
     if (this.gameMode === 'multi_guest' && this.opponentController) {
       this.opponentController.updateRemoteVisuals(performance.now());
     }
+    if (profile) { profile.network += performance.now() - t; t = performance.now(); }
 
     // Update camera with frame-rate independent smoothing
     this.cameraTarget.copy(vehicle.chassisMesh.position);
@@ -394,6 +430,7 @@ export class RacingState implements GameState {
     const cameraBlend = expDecayBlend(5.0, dt);
     camera.position.lerp(this.cameraTarget.clone().add(offsetWorld), cameraBlend);
     camera.lookAt(this.cameraTarget);
+    if (profile) { profile.camera += performance.now() - t; t = performance.now(); }
 
     // Update HUD
     if (this.hud) {
@@ -467,9 +504,36 @@ export class RacingState implements GameState {
       });
     }
 
-    // Render
+    // Update postprocessing speed-driven effects. The actual render call is owned
+    // by GameSession.update — calling renderService.render() here too would render
+    // the scene twice per frame (which is what was happening before this fix and
+    // what was halving fps).
     this.renderService.setSpeed(vehicle.getSpeedKmh());
-    this.renderService.render(dt);
+    if (profile) {
+      profile.misc += performance.now() - t;
+      profile.frames++;
+      if (performance.now() - profile.lastDump >= 1000) {
+        const f = profile.frames;
+        const total = profile.input + profile.player + profile.opponents + profile.physics +
+          profile.race + profile.network + profile.camera + profile.misc;
+        console.log(
+          `[Profile/RacingState] avg/frame:` +
+          ` input=${(profile.input / f).toFixed(2)}` +
+          ` player=${(profile.player / f).toFixed(2)}` +
+          ` opp=${(profile.opponents / f).toFixed(2)}` +
+          ` physics=${(profile.physics / f).toFixed(2)}` +
+          ` race=${(profile.race / f).toFixed(2)}` +
+          ` net=${(profile.network / f).toFixed(2)}` +
+          ` cam=${(profile.camera / f).toFixed(2)}` +
+          ` misc=${(profile.misc / f).toFixed(2)}` +
+          ` | total=${(total / f).toFixed(2)}ms (frames=${f})`
+        );
+        profile.input = profile.player = profile.opponents = profile.physics = 0;
+        profile.race = profile.network = profile.camera = profile.misc = 0;
+        profile.frames = 0;
+        profile.lastDump = performance.now();
+      }
+    }
   }
 
   async exit(): Promise<void> {

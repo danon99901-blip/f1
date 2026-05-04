@@ -1,14 +1,12 @@
 // Pause state - pauses the game and shows pause menu
 
 import type { GameState, StateContext } from '../core/GameStateMachine';
-import type { RenderService } from '../services/RenderService';
 import type { InputService } from '../services/InputService';
 
 export class PauseState implements GameState {
   readonly name = 'pause';
   private context: StateContext | null = null;
   private pauseMenu: HTMLElement | null = null;
-  private renderService: RenderService | null = null;
   private inputService: InputService | null = null;
   private onKeyDown: ((e: KeyboardEvent) => void) | null = null;
 
@@ -19,7 +17,6 @@ export class PauseState implements GameState {
     const container = context.data?.serviceContainer;
     if (!container) throw new Error('ServiceContainer not provided');
 
-    this.renderService = await container.resolve('render') as RenderService;
     this.inputService = await container.resolve('input') as InputService;
 
     // Disable input during pause
@@ -52,11 +49,9 @@ export class PauseState implements GameState {
     });
   }
 
-  update(dt: number): void {
-    // Physics is paused, but we still render the scene
-    if (this.renderService) {
-      this.renderService.render(dt);
-    }
+  update(_dt: number): void {
+    // Render is owned by GameSession.update — calling renderService.render() here
+    // would cause a double render every frame. Physics is paused; nothing to do.
   }
 
   async exit(): Promise<void> {
@@ -77,7 +72,6 @@ export class PauseState implements GameState {
       this.inputService.enable();
     }
 
-    this.renderService = null;
     this.inputService = null;
     this.context = null;
   }
