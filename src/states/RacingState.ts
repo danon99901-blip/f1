@@ -1147,13 +1147,15 @@ export class RacingState implements GameState {
 
     this.guestVehicles.forEach((guestData, guestId) => {
       const isStale = (now - guestData.lastInputAt) > STALE_INPUT_MS;
+      // While stale, apply zero throttle this frame — but DO NOT mutate
+      // guestData.lastInput. Previously we zeroed the cached input on first stale
+      // detection, which meant when fresh input arrived after the gap, the next
+      // handleGuestInput call would overwrite cleanly — but if frames raced, we'd
+      // have brief windows of stale-zeroing the cached input. The cleaner approach
+      // is to keep the last-known input as the cache and just temporarily ignore
+      // it while stale; once a fresh input arrives, lastInputAt updates and the
+      // car resumes.
       const inputToApply = isStale ? ZEROED_INPUT : guestData.lastInput;
-
-      if (isStale && (guestData.lastInput.throttle !== 0 || guestData.lastInput.brake !== 0 || guestData.lastInput.steer !== 0)) {
-        // Zero the cached input so we don't log on every frame
-        console.warn(`[RacingState] Guest ${guestId} input stale (>${STALE_INPUT_MS}ms) — zeroing throttle/brake/steer`);
-        guestData.lastInput = { ...ZEROED_INPUT };
-      }
 
       // Diagnostic: every ~1s log what we're applying to this guest's vehicle and
       // whether its body is actually moving. If position stays constant despite
