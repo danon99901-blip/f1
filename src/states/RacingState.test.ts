@@ -878,5 +878,479 @@ describe('RacingState - Multiplayer Synchronization', () => {
       // AI opponents should be updated instead
       expect(mockOpponentController.updateAI).toHaveBeenCalled();
     });
+
+    it('should call controller.update before syncVisuals for each guest', () => {
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      const mockGuestVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 10, y: 1, z: 5 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 20 })),
+        },
+        getSpeedKmh: vi.fn(() => 72),
+        getForwardSpeedKmh: vi.fn(() => 72),
+        syncVisuals: vi.fn(),
+      } as any;
+
+      const mockGuestController = {
+        update: vi.fn(),
+      } as any;
+
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 2),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).playerId = 'host-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      guestVehicles.set('guest-id', {
+        vehicle: mockGuestVehicle,
+        controller: mockGuestController,
+        lastInput: { throttle: 0.7, brake: 0, steer: 0.2 },
+      });
+
+      racingState.update(0.016);
+
+      // Verify controller.update was called before syncVisuals
+      const updateCallOrder = (mockGuestController.update as any).mock.invocationCallOrder[0];
+      const syncCallOrder = (mockGuestVehicle.syncVisuals as any).mock.invocationCallOrder[0];
+
+      expect(updateCallOrder).toBeDefined();
+      expect(syncCallOrder).toBeDefined();
+      expect(syncCallOrder).toBeGreaterThan(updateCallOrder);
+    });
+
+    it('should update guest vehicles every frame with accumulated input', () => {
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      const mockGuestVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 10, y: 1, z: 5 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 20 })),
+        },
+        getSpeedKmh: vi.fn(() => 72),
+        getForwardSpeedKmh: vi.fn(() => 72),
+        syncVisuals: vi.fn(),
+      } as any;
+
+      const mockGuestController = {
+        update: vi.fn(),
+      } as any;
+
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 2),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_host';
+      (racingState as any).playerId = 'host-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      const initialInput = { throttle: 0.5, brake: 0, steer: 0 };
+      guestVehicles.set('guest-id', {
+        vehicle: mockGuestVehicle,
+        controller: mockGuestController,
+        lastInput: initialInput,
+      });
+
+      // Frame 1
+      racingState.update(0.016);
+      expect(mockGuestController.update).toHaveBeenCalledWith(initialInput, 0.016);
+      expect(mockGuestVehicle.syncVisuals).toHaveBeenCalledTimes(1);
+
+      // Simulate new input arriving
+      const newInput = { throttle: 0.8, brake: 0, steer: 0.3 };
+      guestVehicles.get('guest-id')!.lastInput = newInput;
+
+      // Frame 2
+      racingState.update(0.016);
+      expect(mockGuestController.update).toHaveBeenCalledWith(newInput, 0.016);
+      expect(mockGuestVehicle.syncVisuals).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not update guest vehicles when in guest mode', () => {
+      const mockPlayerVehicle = {
+        rigidBody: {
+          translation: vi.fn(() => ({ x: 0, y: 1, z: 0 })),
+          rotation: vi.fn(() => ({ x: 0, y: 0, z: 0, w: 1 })),
+          linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+        },
+        getSpeedKmh: vi.fn(() => 0),
+        getForwardSpeedKmh: vi.fn(() => 0),
+        syncVisuals: vi.fn(),
+        chassisMesh: {
+          position: new THREE.Vector3(0, 1, 0),
+          quaternion: new THREE.Quaternion(),
+        },
+      } as any;
+
+      const mockPlayerController = {
+        update: vi.fn(),
+        getVehicle: vi.fn(() => mockPlayerVehicle),
+      } as any;
+
+      const mockGuestController = {
+        update: vi.fn(),
+      } as any;
+
+      const mockRaceController = {
+        update: vi.fn(),
+        getPlayerPosition: vi.fn(() => 1),
+        getTotalCars: vi.fn(() => 2),
+        getPlayerLapState: vi.fn(() => ({
+          currentLap: 1,
+          lapTime: 0,
+          lastLapTime: null,
+          bestLapTime: null,
+        })),
+      } as any;
+
+      const mockOpponentController = {
+        updateRemoteVisuals: vi.fn(),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_guest'; // Guest mode
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).physicsService = mockPhysicsService;
+      (racingState as any).renderService = mockRenderService;
+      (racingState as any).inputService = mockInputService;
+      (racingState as any).networkService = mockNetworkService;
+      (racingState as any).playerController = mockPlayerController;
+      (racingState as any).raceController = mockRaceController;
+      (racingState as any).opponentController = mockOpponentController;
+      (racingState as any).opponentInitialized = true;
+      (racingState as any).cameraTarget = new THREE.Vector3();
+      (racingState as any).cameraOffset = new THREE.Vector3(0, 2, -5);
+
+      // Add a "guest" vehicle (shouldn't be updated by guest client)
+      const guestVehicles = (racingState as any).guestVehicles as Map<string, any>;
+      guestVehicles.set('other-guest', {
+        vehicle: {} as any,
+        controller: mockGuestController,
+        lastInput: { throttle: 0.5, brake: 0, steer: 0 },
+      });
+
+      racingState.update(0.016);
+
+      // Guest controller should NOT be updated when we are in guest mode
+      expect(mockGuestController.update).not.toHaveBeenCalled();
+
+      // Instead, remote visuals should be updated via OpponentController
+      expect(mockOpponentController.updateRemoteVisuals).toHaveBeenCalled();
+    });
+  });
+
+  describe('Guest: Host Vehicle Visibility', () => {
+    it('should create remote player mesh for host when receiving first snapshot', () => {
+      const mockOpponentController = {
+        getRemotePlayerMesh: vi.fn(() => null), // No mesh exists yet
+        addRemotePlayer: vi.fn(),
+        updateRemotePlayer: vi.fn(),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_guest';
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).opponentController = mockOpponentController;
+
+      const hostSnapshot = {
+        tick: 1,
+        timestamp: 100,
+        players: [
+          {
+            id: 'host-id',
+            name: 'Host Player',
+            carColor: 0xff0000,
+            position: [0, 1, 0],
+            rotation: [0, 0, 0, 1],
+            velocity: [0, 0, 0],
+            speedKmh: 0,
+          },
+        ],
+      };
+
+      const handleHostSnapshot = (racingState as any).handleHostSnapshot.bind(racingState);
+      handleHostSnapshot(hostSnapshot);
+
+      // Verify remote player was created
+      expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledWith(
+        'host-id',
+        'Host Player',
+        0xff0000,
+        false
+      );
+
+      // Verify remote player was updated with snapshot
+      expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalledWith(
+        hostSnapshot.players[0],
+        expect.any(Number)
+      );
+    });
+
+    it('should update existing host mesh when receiving subsequent snapshots', () => {
+      const mockHostMesh = new THREE.Mesh();
+      const mockOpponentController = {
+        getRemotePlayerMesh: vi.fn(() => mockHostMesh), // Mesh already exists
+        addRemotePlayer: vi.fn(),
+        updateRemotePlayer: vi.fn(),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_guest';
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).opponentController = mockOpponentController;
+
+      const hostSnapshot = {
+        tick: 2,
+        timestamp: 116,
+        players: [
+          {
+            id: 'host-id',
+            name: 'Host Player',
+            carColor: 0xff0000,
+            position: [10, 1, 5],
+            rotation: [0, 0.1, 0, 0.995],
+            velocity: [5, 0, 10],
+            speedKmh: 72,
+          },
+        ],
+      };
+
+      const handleHostSnapshot = (racingState as any).handleHostSnapshot.bind(racingState);
+      handleHostSnapshot(hostSnapshot);
+
+      // Should NOT create a new player (mesh already exists)
+      expect(mockOpponentController.addRemotePlayer).not.toHaveBeenCalled();
+
+      // Should update existing player
+      expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalledWith(
+        hostSnapshot.players[0],
+        expect.any(Number)
+      );
+    });
+
+    it('should buffer snapshots when OpponentController is not ready', () => {
+      (racingState as any).gameMode = 'multi_guest';
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).opponentController = null; // Not ready yet
+      (racingState as any).pendingSnapshots = [];
+
+      const hostSnapshot = {
+        tick: 1,
+        timestamp: 100,
+        players: [
+          {
+            id: 'host-id',
+            name: 'Host Player',
+            carColor: 0xff0000,
+            position: [0, 1, 0],
+            rotation: [0, 0, 0, 1],
+            velocity: [0, 0, 0],
+            speedKmh: 0,
+          },
+        ],
+      };
+
+      const handleHostSnapshot = (racingState as any).handleHostSnapshot.bind(racingState);
+      handleHostSnapshot(hostSnapshot);
+
+      // Verify snapshot was buffered
+      const pendingSnapshots = (racingState as any).pendingSnapshots;
+      expect(pendingSnapshots).toHaveLength(1);
+      expect(pendingSnapshots[0].snapshot).toEqual(hostSnapshot);
+    });
+
+    it('should flush buffered snapshots when OpponentController becomes ready', () => {
+      const mockOpponentController = {
+        getRemotePlayerMesh: vi.fn(() => null),
+        addRemotePlayer: vi.fn(),
+        updateRemotePlayer: vi.fn(),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_guest';
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).opponentController = null;
+      (racingState as any).pendingSnapshots = [];
+
+      // Receive snapshot while OpponentController is not ready
+      const hostSnapshot = {
+        tick: 1,
+        timestamp: 100,
+        players: [
+          {
+            id: 'host-id',
+            name: 'Host Player',
+            carColor: 0xff0000,
+            position: [0, 1, 0],
+            rotation: [0, 0, 0, 1],
+            velocity: [0, 0, 0],
+            speedKmh: 0,
+          },
+        ],
+      };
+
+      const handleHostSnapshot = (racingState as any).handleHostSnapshot.bind(racingState);
+      handleHostSnapshot(hostSnapshot);
+
+      // Verify snapshot was buffered
+      expect((racingState as any).pendingSnapshots).toHaveLength(1);
+
+      // Now OpponentController becomes ready
+      (racingState as any).opponentController = mockOpponentController;
+
+      // Flush buffered snapshots
+      const flushPendingSnapshots = (racingState as any).flushPendingSnapshots.bind(racingState);
+      flushPendingSnapshots();
+
+      // Verify buffered snapshot was processed
+      expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledWith(
+        'host-id',
+        'Host Player',
+        0xff0000,
+        false
+      );
+      expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalled();
+
+      // Verify buffer was cleared
+      expect((racingState as any).pendingSnapshots).toHaveLength(0);
+    });
+
+    it('should skip local player in snapshot and only process host', () => {
+      const mockOpponentController = {
+        getRemotePlayerMesh: vi.fn(() => null),
+        addRemotePlayer: vi.fn(),
+        updateRemotePlayer: vi.fn(),
+      } as any;
+
+      const mockClientPrediction = {
+        reconcile: vi.fn(),
+        clearOldInputs: vi.fn(),
+      } as any;
+
+      (racingState as any).gameMode = 'multi_guest';
+      (racingState as any).playerId = 'guest-id';
+      (racingState as any).opponentController = mockOpponentController;
+      (racingState as any).clientPrediction = mockClientPrediction;
+
+      const snapshotWithBothPlayers = {
+        tick: 1,
+        timestamp: 100,
+        players: [
+          {
+            id: 'host-id',
+            name: 'Host Player',
+            carColor: 0xff0000,
+            position: [0, 1, 0],
+            rotation: [0, 0, 0, 1],
+            velocity: [0, 0, 0],
+            speedKmh: 0,
+          },
+          {
+            id: 'guest-id', // This is us
+            name: 'Guest Player',
+            carColor: 0x00ff00,
+            position: [10, 1, 5],
+            rotation: [0, 0.1, 0, 0.995],
+            velocity: [5, 0, 10],
+            speedKmh: 72,
+          },
+        ],
+      };
+
+      const handleHostSnapshot = (racingState as any).handleHostSnapshot.bind(racingState);
+      handleHostSnapshot(snapshotWithBothPlayers);
+
+      // Should create remote player only for host
+      expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledTimes(1);
+      expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledWith(
+        'host-id',
+        'Host Player',
+        0xff0000,
+        false
+      );
+
+      // Should reconcile local player
+      expect(mockClientPrediction.reconcile).toHaveBeenCalledWith(
+        snapshotWithBothPlayers.players[1],
+        expect.any(Number)
+      );
+
+      // Should update remote player only for host
+      expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalledTimes(1);
+      expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalledWith(
+        snapshotWithBothPlayers.players[0],
+        expect.any(Number)
+      );
+    });
   });
 });
