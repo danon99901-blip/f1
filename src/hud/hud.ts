@@ -134,21 +134,31 @@ export function createHud(): Hud {
   netPanel.append(netIcon, netPing, netUnit);
 
   // ---- Top-right: FPS counter ----
-  // Self-contained: measures inter-frame time from update() calls. Uses an EWMA so
-  // the displayed value doesn't flicker every frame, but updates fast enough that
-  // a real fps drop is visible within ~250ms.
-  const fpsPanel = el('div', 'hud-panel hud-fps hud-anim hud-anim-tr');
-  const fpsValue = el('div', 'hud-fps-value hud-num', '--');
+  // Tracks current fps (EWMA), 1-second min/max for spike visibility, and 1% low
+  // (worst 1% of frame times in the last second — the standard "stability" metric
+  // in gaming benchmarks). 1% low diverging from avg = stutter even when avg looks
+  // fine. Frame-time max in ms tells you how bad the worst spike was.
+  const fpsPanel = el('div', 'hud-panel hud-fps');
+  const fpsCurrent = el('div', 'hud-fps-current hud-num', '--');
   const fpsLabel = el('div', 'hud-fps-label', 'FPS');
-  fpsPanel.append(fpsValue, fpsLabel);
-  // Inline minimal styling so we don't need to touch CSS files for this debug panel.
-  fpsPanel.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.55);color:#fff;font-family:monospace;font-size:14px;padding:4px 8px;border-radius:4px;z-index:1000;display:flex;gap:6px;align-items:baseline;';
-  fpsValue.style.cssText = 'font-size:18px;font-weight:bold;';
-  fpsLabel.style.cssText = 'font-size:10px;opacity:0.7;';
+  const fpsMinMax = el('div', 'hud-fps-minmax', '');
+  const fpsSpike = el('div', 'hud-fps-spike', '');
+  fpsPanel.append(fpsCurrent, fpsLabel, fpsMinMax, fpsSpike);
+  fpsPanel.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.65);color:#fff;font-family:monospace;font-size:11px;padding:6px 10px;border-radius:4px;z-index:1000;display:flex;flex-direction:column;align-items:flex-end;gap:1px;line-height:1.2;min-width:130px;';
+  fpsCurrent.style.cssText = 'font-size:22px;font-weight:bold;line-height:1;';
+  fpsLabel.style.cssText = 'font-size:9px;opacity:0.6;letter-spacing:1px;margin-top:-2px;';
+  fpsMinMax.style.cssText = 'font-size:11px;opacity:0.85;margin-top:4px;';
+  fpsSpike.style.cssText = 'font-size:10px;opacity:0.7;';
 
   let lastFpsUpdate = performance.now();
   let smoothedFps = 0;
   let frameCounter = 0;
+  // Frame-time samples for the current 1-second window. Each entry is the
+  // milliseconds between two consecutive updates. We store ~100 entries and
+  // recompute min/max/p99 when we paint the panel.
+  const frameTimeSamples: number[] = [];
+  const FRAMETIME_WINDOW = 120; // ~2 sec at 60fps; rolling buffer
+  let lastPanelDump = performance.now();
 
   // ---- Center overlay: reconnection notification ----
   const reconnectOverlay = el('div', 'hud-reconnect-overlay');
@@ -173,22 +183,52 @@ export function createHud(): Hud {
 
   function update(state: HudState): void {
     // FPS — sampled from inter-frame time, smoothed via EWMA, displayed every 250ms.
-    // We compute every frame so the EWMA tracks accurately, but only paint to the DOM
-    // 4x/sec to avoid font-rendering jank.
     const now = performance.now();
     const dt = now - lastFpsUpdate;
     lastFpsUpdate = now;
     if (dt > 0 && dt < 1000) {
       const instantFps = 1000 / dt;
       smoothedFps = smoothedFps === 0 ? instantFps : smoothedFps * 0.9 + instantFps * 0.1;
+      // Push to rolling window for min/max/p99 stats.
+      frameTimeSamples.push(dt);
+      if (frameTimeSamples.length > FRAMETIME_WINDOW) frameTimeSamples.shift();
     }
     frameCounter++;
     if (frameCounter >= 15) {
       frameCounter = 0;
       const rounded = Math.round(smoothedFps);
-      fpsValue.textContent = String(rounded);
-      // Color-code: green ≥55, yellow 30-54, red <30.
-      fpsValue.style.color = rounded >= 55 ? '#7fff7f' : rounded >= 30 ? '#ffd57f' : '#ff7f7f';
+      fpsCurrent.textContent = String(rounded);
+      // Color-code current fps: green ≥55, yellow 30-54, red <30.
+      fpsCurrent.style.color = rounded >= 55 ? '#7fff7f' : rounded >= 30 ? '#ffd57f' : '#ff7f7f';
+    }
+    // Repaint the min/max/p99 line every 250ms — paints less often than fps so
+    // it's readable even when stuttering.
+    if (now - lastPanelDump >= 250 && frameTimeSamples.length >= 10) {
+      lastPanelDump = now;
+      // Sort ascending for percentile lookup (low frame time = high fps).
+      const sorted = [...frameTimeSamples].sort((a, b) => a - b);
+      const minDt = sorted[0]!;
+      const maxDt = sorted[sorted.length - 1]!;
+      // 1% low fps = the fps you'd see at the 99th percentile worst frame time.
+      const p99Idx = Math.floor(sorted.length * 0.99);
+      const p99Dt = sorted[Math.min(p99Idx, sorted.length - 1)]!;
+      const fpsMax = Math.round(1000 / minDt); // shortest frame = highest fps
+      const fpsMin = Math.round(1000 / maxDt);
+      const fps1pctLow = Math.round(1000 / p99Dt);
+
+      fpsMinMax.textContent = `min ${fpsMin} · 1%low ${fps1pctLow} · max ${fpsMax}`;
+      // Show worst frame time in ms — gives a clear "how bad was the spike" number.
+      // 16.7ms = 60fps perfect; 33.3ms = 30fps; >50ms = noticeable stutter.
+      const spikeColor = maxDt > 50 ? '#ff7f7f' : maxDt > 25 ? '#ffd57f' : '#7fff7f';
+      fpsSpike.innerHTML = `worst frame: <span style="color:${spikeColor};font-weight:bold">${maxDt.toFixed(1)}ms</span>`;
+
+      // 1% low much worse than smooth fps = stutter pattern. Highlight.
+      const smoothRounded = Math.round(smoothedFps);
+      if (fps1pctLow < smoothRounded - 15) {
+        fpsMinMax.style.color = '#ffd57f';
+      } else {
+        fpsMinMax.style.color = '#fff';
+      }
     }
 
     // Speed
