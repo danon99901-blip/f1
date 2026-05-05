@@ -192,6 +192,8 @@ export class RacingState implements GameState {
     // Track vehicle meshes for cleanup
     this.vehicleMeshes.push(localVehicle.chassisMesh);
     this.vehicleMeshes.push(...localVehicle.wheelMeshes);
+    // Set track for DRS zone detection
+    localVehicle.setTrack(track);
 
     console.log('[RacingState] Spawn position:', spawn.position, 'yaw:', yawSpawn);
 
@@ -487,6 +489,8 @@ export class RacingState implements GameState {
         position: Math.max(1, Math.min(totalCars, position)),
         totalCars,
         networkStats,
+        ers: vehicle.getDebug().ers,
+        drs: vehicle.getDebug().drs,
       });
     }
 

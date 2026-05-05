@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { getRAPIER } from '../physics';
 import type { InputState } from '../input';
+import { ERS, type ERSState } from './ERS';
+import { DRS, type DRSState } from './DRS';
+import type { Track } from '../track/track';
 
 // --- F1-feel tuning constants -------------------------------------------------
 // Chassis (sleek F1 silhouette: long, low, narrow). Half-extents.
@@ -110,6 +113,10 @@ export interface VehicleDebug {
   yaw: number;
   /** World-space direction the visual nose points (local -Z, applied rotation). */
   noseWorld: { x: number; y: number; z: number };
+  /** ERS system state */
+  ers: ERSState;
+  /** DRS system state */
+  drs: DRSState;
 }
 
 export interface Vehicle {
@@ -119,6 +126,8 @@ export interface Vehicle {
   wheelMeshes: THREE.Object3D[];
   update(input: InputState, dt: number): void;
   syncVisuals(): void;
+  /** Set the track for DRS zone detection. */
+  setTrack(track: Track | null): void;
   /** Magnitude of the longitudinal speed, in km/h. */
   getSpeedKmh(): number;
   /** Signed longitudinal speed in km/h: positive forward, negative in reverse. */
@@ -339,6 +348,11 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
   const localVel = new THREE.Vector3();
   const dragForce = new THREE.Vector3();
 
+  // --- ERS and DRS systems --------------------------------------------------
+  const ers = new ERS(4000000); // Full charge
+  const drs = new DRS();
+  let track: Track | null = null;
+
   // Debug snapshot — written at the end of update(), read by getDebug().
   const dbg: VehicleDebug = {
     forwardSpeed: 0,
@@ -359,6 +373,8 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     wheelRotations: [0, 0, 0, 0],
     yaw: 0,
     noseWorld: { x: 0, y: 0, z: -1 },
+    ers: ers.getState(),
+    drs: drs.getState(),
   };
   const tmpNose = new THREE.Vector3();
   const tmpChassisQ = new THREE.Quaternion();
@@ -434,6 +450,20 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     // doesn't inject extra downforce that compounds the bottom-out.
     const horizSpeedSq = worldVel.x * worldVel.x + worldVel.z * worldVel.z;
     const speedMs = Math.sqrt(horizSpeedSq);
+
+    // Update ERS and DRS systems (needs speedMs)
+    const ersDeployRequested = input.ersDeployRequested ?? false;
+    const drsRequested = input.drsRequested ?? false;
+
+    // ERS: returns additional thrust force in Newtons
+    const ersBoost = ers.update(dt, input.throttle, input.brake, speedMs, ersDeployRequested);
+
+    // DRS: returns drag multiplier (1.0 = normal, 0.85 = active)
+    // For single player, always allow DRS (withinGap = true)
+    const inDRSZone = track ? track.isInDRSZone(track.getProgress(rigidBody.translation())) : false;
+    const withinGap = true;  // Single player always has gap advantage
+    const drsMultiplier = drs.update(speedMs, input.brake, inDRSZone, withinGap, drsRequested);
+
     const downforce = Math.min(DOWNFORCE_MAX, DOWNFORCE_COEFF * horizSpeedSq);
     rigidBody.addForce({ x: 0, y: -downforce, z: 0 }, true);
 
@@ -441,7 +471,7 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
       dragForce
         .copy(worldVel)
         .normalize()
-        .multiplyScalar(-DRAG_COEFF * horizSpeedSq);
+        .multiplyScalar(-DRAG_COEFF * drsMultiplier * horizSpeedSq);
       rigidBody.addForce({ x: dragForce.x, y: 0, z: dragForce.z }, true);
     }
 
@@ -482,6 +512,9 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
         engineForce = -THRUST_REVERSE_MAX * brake * headroom;
       }
     }
+
+    // Add ERS boost to forward thrust
+    engineForce += ersBoost;
 
     // Apply the thrust as a horizontal force on the chassis along the nose
     // direction. We zero the y-component so engine power never lifts/pulls
@@ -642,6 +675,8 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     dbg.smoothedSteer = smoothedSteer;
     dbg.wantsReverse = wantsReverse;
     dbg.downforce = downforce;
+    dbg.ers = ers.getState();
+    dbg.drs = drs.getState();
     for (let i = 0; i < WHEELS.length; i++) {
       dbg.wheelContacts[i] = controller.wheelIsInContact(i) ?? false;
       dbg.suspensionLengths[i] =
@@ -723,6 +758,7 @@ export function createVehicle(world: RAPIER.World, scene: THREE.Scene, color?: n
     wheelMeshes,
     update,
     syncVisuals,
+    setTrack: (t: Track | null) => { track = t; },
     getSpeedKmh,
     getForwardSpeedKmh,
     getDebug: () => dbg,

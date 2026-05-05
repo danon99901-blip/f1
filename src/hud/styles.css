@@ -284,6 +284,122 @@
   box-shadow: 0 0 10px rgba(225, 6, 0, 0.55);
 }
 
+/* ---- ERS battery (bottom-right) ---- */
+.hud-ers {
+  bottom: 1.5rem;
+  right: 1.5rem;
+  min-width: 11rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  border-right: 3px solid var(--f1-purple);
+}
+.hud-ers-bar {
+  margin-top: 0.55rem;
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  border-radius: 1px;
+  position: relative;
+}
+.hud-ers-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: #7fff7f;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.15s ease-out, background-color 0.3s ease;
+  box-shadow: 0 0 10px rgba(127, 255, 127, 0.55);
+}
+.hud-ers-bar-deploy {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(176, 38, 255, 0.6), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  animation: ersDeployPulse 0.8s ease-in-out infinite;
+}
+.hud-ers-bar-recover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(127, 255, 127, 0.6), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  animation: ersRecoverPulse 1s ease-in-out infinite;
+}
+@keyframes ersDeployPulse {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+@keyframes ersRecoverPulse {
+  0%, 100% { transform: translateX(100%); }
+  50% { transform: translateX(-100%); }
+}
+.hud-ers-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-top: 0.3rem;
+}
+
+/* ---- DRS indicator (bottom-center, above gear) ---- */
+.hud-drs {
+  bottom: 9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1.2rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+.hud-drs-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.25em;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+.hud-drs-status {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+}
+.hud-drs-available {
+  border-color: #ffaa00;
+  background: rgba(255, 170, 0, 0.1);
+  animation: drsAvailablePulse 1.5s ease-in-out infinite;
+}
+.hud-drs-available .hud-drs-label,
+.hud-drs-available .hud-drs-status {
+  color: #ffaa00;
+  text-shadow: 0 0 8px rgba(255, 170, 0, 0.6);
+}
+.hud-drs-active {
+  border-color: #00ff00;
+  background: rgba(0, 255, 0, 0.15);
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
+}
+.hud-drs-active .hud-drs-label,
+.hud-drs-active .hud-drs-status {
+  color: #00ff00;
+  text-shadow: 0 0 12px rgba(0, 255, 0, 0.8);
+}
+@keyframes drsAvailablePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* ---- Entry animations ---- */
 .hud-anim {
   opacity: 0;
@@ -295,6 +411,7 @@
 .hud-anim-tr   { animation-name: hudInTR;   animation-delay: 0.1s;  }
 .hud-anim-top  { animation-name: hudInTop;  animation-delay: 0.15s; }
 .hud-anim-bl   { animation-name: hudInBL;   animation-delay: 0.2s;  }
+.hud-anim-br   { animation-name: hudInBR;   animation-delay: 0.22s; }
 .hud-anim-bottom { animation-name: hudInBottom; animation-delay: 0.25s; }
 
 @keyframes hudInTL {
@@ -311,6 +428,10 @@
 }
 @keyframes hudInBL {
   from { opacity: 0; transform: translateX(-32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes hudInBR {
+  from { opacity: 0; transform: translateX(32px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes hudInBottom {

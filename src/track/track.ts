@@ -9,6 +9,10 @@ import {
   createCenterline,
   createSilverstoneCircuit,
   createMonacoCircuit,
+  type DRSZone,
+  DEFAULT_DRS_ZONES,
+  SILVERSTONE_DRS_ZONES,
+  MONACO_DRS_ZONES,
 } from './circuit';
 
 /** Per-sample frame along the centerline. */
@@ -54,6 +58,10 @@ export interface Track {
   isOnTrack: (pos: THREE.Vector3 | RAPIER.Vector) => boolean;
   /** Normalised progress along the centerline in [0, 1). */
   getProgress: (pos: THREE.Vector3 | RAPIER.Vector) => number;
+  /** Check if position is in any DRS zone. */
+  isInDRSZone: (progress: number) => boolean;
+  /** DRS zones for this track. */
+  drsZones: ReadonlyArray<DRSZone>;
   lapInfo: LapInfo;
   /** Clean up Rapier resources to prevent memory leaks. */
   dispose: () => void;
@@ -709,6 +717,31 @@ export function createTrack(
     return along / totalLength;
   };
 
+  // Select DRS zones based on track type
+  const drsZones = trackType === 'silverstone'
+    ? SILVERSTONE_DRS_ZONES
+    : trackType === 'monaco'
+    ? MONACO_DRS_ZONES
+    : DEFAULT_DRS_ZONES;
+
+  const isInDRSZone = (progress: number): boolean => {
+    for (const zone of drsZones) {
+      // Handle zones that wrap around the start/finish line
+      if (zone.zoneStart <= zone.zoneEnd) {
+        // Normal case: zone doesn't wrap
+        if (progress >= zone.zoneStart && progress <= zone.zoneEnd) {
+          return true;
+        }
+      } else {
+        // Wrap case: zone crosses 0/1 boundary (e.g., 0.92 to 0.15)
+        if (progress >= zone.zoneStart || progress <= zone.zoneEnd) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   const lapInfo: LapInfo = {
     length: totalLength,
     checkpointCount: checkpoints.length,
@@ -741,6 +774,8 @@ export function createTrack(
     checkpoints,
     isOnTrack,
     getProgress,
+    isInDRSZone,
+    drsZones,
     lapInfo,
     dispose,
   };

@@ -10,6 +10,22 @@ export interface NetworkStats {
   reconnectAttempt?: number;
 }
 
+export interface ERSHudState {
+  batteryCharge: number;      // 0..1
+  batteryChargeJ: number;      // Joules
+  maxCapacity: number;         // Joules
+  isDeploying: boolean;
+  isRecovering: boolean;
+  deployedThisLap: number;     // Joules
+  recoveredThisLap: number;    // Joules
+}
+
+export interface DRSHudState {
+  isActive: boolean;
+  isAvailable: boolean;
+  inDRSZone: boolean;
+}
+
 export interface HudState {
   speedKmh: number;
   gear: Gear;
@@ -21,6 +37,8 @@ export interface HudState {
   position: number;
   totalCars: number;
   networkStats?: NetworkStats | null;
+  ers?: ERSHudState;
+  drs?: DRSHudState;
 }
 
 export type NotificationType = 'info' | 'warning' | 'error' | 'success';
@@ -125,6 +143,24 @@ export function createHud(): Hud {
   speedBarWrap.append(speedBarFill);
   speedPanel.append(speedValue, speedUnit, speedBarWrap);
 
+  // ---- Bottom-right: ERS battery ----
+  const ersPanel = el('div', 'hud-panel hud-ers hud-anim hud-anim-br');
+  const ersLabel = el('div', 'hud-panel-label', 'ERS');
+  const ersBarWrap = el('div', 'hud-ers-bar');
+  const ersBarFill = el('div', 'hud-ers-bar-fill');
+  const ersBarDeploy = el('div', 'hud-ers-bar-deploy');
+  const ersBarRecover = el('div', 'hud-ers-bar-recover');
+  ersBarWrap.append(ersBarFill, ersBarDeploy, ersBarRecover);
+  const ersValue = el('div', 'hud-ers-value hud-num', '100%');
+  ersPanel.append(ersLabel, ersBarWrap, ersValue);
+
+  // ---- Bottom-center (above gear): DRS indicator ----
+  const drsPanel = el('div', 'hud-panel hud-drs hud-anim hud-anim-bottom');
+  const drsLabel = el('div', 'hud-drs-label', 'DRS');
+  const drsStatus = el('div', 'hud-drs-status', 'AVAILABLE');
+  drsPanel.append(drsLabel, drsStatus);
+  drsPanel.style.display = 'none'; // Hidden by default
+
   // ---- Top-right (below position): network stats ----
   const netPanel = el('div', 'hud-panel hud-network hud-anim hud-anim-tr');
   netPanel.style.display = 'none'; // Hidden by default, shown only in multiplayer
@@ -173,7 +209,7 @@ export function createHud(): Hud {
   // ---- Notification system ----
   const notificationContainer = el('div', 'hud-notification-container');
 
-  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, netPanel, fpsPanel, reconnectOverlay, notificationContainer);
+  root.append(lapPanel, posPanel, timesPanel, gearPanel, speedPanel, ersPanel, drsPanel, netPanel, fpsPanel, reconnectOverlay, notificationContainer);
 
   // Track previous best to flash on improvement.
   let lastBestMs: number | null = null;
@@ -321,6 +357,51 @@ export function createHud(): Hud {
     } else {
       netPanel.style.display = 'none';
       reconnectOverlay.style.display = 'none';
+    }
+
+    // ERS battery
+    if (state.ers) {
+      const { batteryCharge, isDeploying, isRecovering } = state.ers;
+      const pct = Math.max(0, Math.min(1, batteryCharge));
+      ersBarFill.style.transform = `scaleX(${pct.toFixed(3)})`;
+      ersValue.textContent = `${Math.round(pct * 100)}%`;
+
+      // Color code by charge level
+      if (pct > 0.5) {
+        ersBarFill.style.backgroundColor = '#7fff7f'; // Green
+      } else if (pct > 0.2) {
+        ersBarFill.style.backgroundColor = '#ffd57f'; // Yellow
+      } else {
+        ersBarFill.style.backgroundColor = '#ff7f7f'; // Red
+      }
+
+      // Show deploy/recover indicators
+      ersBarDeploy.style.opacity = isDeploying ? '1' : '0';
+      ersBarRecover.style.opacity = isRecovering ? '1' : '0';
+    }
+
+    // DRS status
+    if (state.drs) {
+      const { isActive, isAvailable, inDRSZone } = state.drs;
+
+      if (inDRSZone || isActive) {
+        drsPanel.style.display = '';
+
+        if (isActive) {
+          drsPanel.classList.add('hud-drs-active');
+          drsPanel.classList.remove('hud-drs-available');
+          drsStatus.textContent = 'ACTIVE';
+        } else if (isAvailable) {
+          drsPanel.classList.add('hud-drs-available');
+          drsPanel.classList.remove('hud-drs-active');
+          drsStatus.textContent = 'AVAILABLE';
+        } else {
+          drsPanel.classList.remove('hud-drs-active', 'hud-drs-available');
+          drsStatus.textContent = 'ZONE';
+        }
+      } else {
+        drsPanel.style.display = 'none';
+      }
     }
   }
 

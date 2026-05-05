@@ -35,4 +35,6 @@ export interface InputState {
   throttle: number;  // 0..1
   brake: number;     // 0..1
   steer: number;     // -1..1
+  ersDeployRequested?: boolean;  // ERS deployment (E key)
+  drsRequested?: boolean;        // DRS activation (Q key)
 }

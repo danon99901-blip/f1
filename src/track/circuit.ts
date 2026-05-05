@@ -219,3 +219,71 @@ export const TRACK_SEGMENTS = 256;
 
 /** Number of evenly spaced checkpoint sensors (including start/finish). */
 export const CHECKPOINT_COUNT = 20;
+
+/**
+ * DRS zone definition: start and end positions along the track (0..1).
+ * Detection point is typically ~100m before the zone start.
+ */
+export interface DRSZone {
+  /** Detection point (0..1 along track) - where gap is measured */
+  detectionPoint: number;
+  /** Zone start (0..1 along track) - where DRS can be activated */
+  zoneStart: number;
+  /** Zone end (0..1 along track) - where DRS is disabled */
+  zoneEnd: number;
+  /** Human-readable name for the zone */
+  name: string;
+}
+
+/**
+ * DRS zones for default circuit.
+ * Zone 1: Back straight (after hairpin)
+ * Zone 2: Pit straight (main straight)
+ */
+export const DEFAULT_DRS_ZONES: ReadonlyArray<DRSZone> = [
+  {
+    name: 'Back Straight',
+    detectionPoint: 0.65, // Hairpin exit
+    zoneStart: 0.70,      // Start of back straight
+    zoneEnd: 0.85,        // End of back straight
+  },
+  {
+    name: 'Pit Straight',
+    detectionPoint: 0.92, // Final corner exit
+    zoneStart: 0.0,       // Start/finish line
+    zoneEnd: 0.15,        // Turn 1 braking zone
+  },
+];
+
+/**
+ * DRS zones for Silverstone circuit.
+ * Zone 1: Wellington Straight (main straight)
+ * Zone 2: Hangar Straight (between Brooklands and Copse)
+ */
+export const SILVERSTONE_DRS_ZONES: ReadonlyArray<DRSZone> = [
+  {
+    name: 'Wellington Straight',
+    detectionPoint: 0.90, // Club corner exit
+    zoneStart: 0.0,       // Start/finish
+    zoneEnd: 0.12,        // Abbey braking
+  },
+  {
+    name: 'Hangar Straight',
+    detectionPoint: 0.48, // Brooklands exit
+    zoneStart: 0.52,      // Start of straight
+    zoneEnd: 0.65,        // Copse braking
+  },
+];
+
+/**
+ * DRS zones for Monaco circuit.
+ * Only one DRS zone on the main straight (Monaco has limited overtaking opportunities).
+ */
+export const MONACO_DRS_ZONES: ReadonlyArray<DRSZone> = [
+  {
+    name: 'Start/Finish Straight',
+    detectionPoint: 0.88, // Rascasse exit
+    zoneStart: 0.0,       // Start/finish
+    zoneEnd: 0.08,        // Sainte Dévote braking
+  },
+];
