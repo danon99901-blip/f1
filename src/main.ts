@@ -80,6 +80,7 @@ async function main() {
   const [
     { MenuState },
     { LobbyState },
+    { SinglePlayerSetupState },
     { CountdownState },
     { RacingState },
     { PauseState },
@@ -87,6 +88,7 @@ async function main() {
   ] = await Promise.all([
     import('./states/MenuState'),
     import('./states/LobbyState'),
+    import('./states/SinglePlayerSetupState'),
     import('./states/CountdownState'),
     import('./states/RacingState'),
     import('./states/PauseState'),
@@ -98,6 +100,7 @@ async function main() {
   const states = new Map<string, any>([
     ['menu', new MenuState()],
     ['lobby', new LobbyState()],
+    ['single-player-setup', new SinglePlayerSetupState()],
     ['countdown', new CountdownState()],
     ['racing', new RacingState()],
     ['pause', new PauseState()],

@@ -16,7 +16,11 @@ export class MenuState implements GameState {
         this.actionInProgress = true;
 
         console.log('[MenuState] Single player clicked');
-        context.eventBus.emit('game:request-state-change', { from: 'menu', to: 'racing' });
+        context.eventBus.emit('game:request-state-change', {
+          from: 'menu',
+          to: 'single-player-setup',
+          data: { serviceContainer: context.data?.serviceContainer }
+        });
       },
       onMultiplayerCreate: (playerName: string) => {
         if (this.actionInProgress) return;
