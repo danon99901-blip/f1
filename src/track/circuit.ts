@@ -129,48 +129,72 @@ export function createSilverstoneCircuit(): THREE.CatmullRomCurve3 {
 }
 
 /**
- * Control points for Monaco-inspired street circuit (19 corners).
- * Tight, technical layout with slow corners and short straights.
+ * Control points for Monaco street circuit — accurate replica based on real track layout.
+ * 3.337 km, 19 corners, tight and technical with elevation changes.
+ * Scale: ~1 unit = 10 meters for proper racing feel.
  */
 export const MONACO_CONTROL_POINTS: ReadonlyArray<readonly [number, number]> = [
-  // 0  Start/finish — short straight
-  [-100, 50],
-  // 1  Sainte Devote — tight right after start
-  [-70, 35],
-  // 2  Beau Rivage — uphill climb
-  [-40, 20],
-  // 3  Massenet — right kink
-  [-10, 10],
-  // 4  Casino — tight right
-  [15, -5],
-  // 5  Mirabeau — very tight hairpin entry
-  [30, -25],
-  // 6  Mirabeau apex
+  // Start/Finish straight
+  [0, 0],
+  [0, -20],
+
+  // Turn 1: Sainte Dévote (tight right-hander, 50 km/h)
+  [15, -35],
   [35, -45],
-  // 7  Station hairpin — another tight right
-  [25, -65],
-  // 8  Portier — right kink
-  [10, -85],
-  // 9  Tunnel entry — slight left
-  [-10, -95],
-  // 10 Tunnel exit
-  [-40, -100],
-  // 11 Nouvelle Chicane — left
-  [-65, -90],
-  // 12 Nouvelle Chicane — right
-  [-80, -70],
-  // 13 Tabac — medium left
-  [-95, -45],
-  // 14 Swimming Pool — tight right
+
+  // Beau Rivage (uphill climb to Casino)
+  [50, -50],
+  [70, -55],
+
+  // Turn 2: Massenet (slight right kink)
+  [85, -60],
+
+  // Turn 3: Casino Square (right-hander)
+  [100, -70],
+  [110, -85],
+
+  // Turn 4: Mirabeau (tight right before hairpin)
+  [115, -100],
+
+  // Turn 5: Grand Hotel Hairpin / Loews (slowest corner, 48 km/h)
+  [115, -120],
+  [105, -135],
+  [85, -140],
+
+  // Turn 6: Portier (right-hander leading to tunnel)
+  [70, -145],
+  [55, -155],
+
+  // Tunnel section (slight left, fastest part ~260 km/h)
+  [35, -165],
+  [10, -175],
+  [-15, -180],
+  [-40, -182],
+
+  // Turn 10: Nouvelle Chicane (left-right chicane after tunnel)
+  [-60, -180],
+  [-75, -175],
+  [-85, -165],
+
+  // Turn 11: Tabac (fast left-hander)
+  [-95, -145],
+  [-100, -120],
+
+  // Turn 12-13: Swimming Pool complex (tight chicane)
+  [-105, -95],
+  [-115, -75],
+  [-120, -55],
+  [-115, -35],
+
+  // Turn 14: La Rascasse (very tight hairpin, 55 km/h)
   [-105, -15],
-  // 15 Swimming Pool chicane — left
-  [-110, 10],
-  // 16 La Rascasse — very tight hairpin
-  [-115, 35],
-  // 17 Anthony Noghes — tight right
-  [-110, 55],
-  // 18 Final corner onto start/finish
-  [-105, 65],
+  [-85, -5],
+
+  // Turn 15: Anthony Noghes (tight right onto start/finish)
+  [-65, 0],
+  [-45, 5],
+  [-25, 8],
+  [-10, 5],
 ];
 
 /**

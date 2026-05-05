@@ -33,7 +33,7 @@ describe('circuit', () => {
 
   it('should create Monaco circuit with correct number of control points', () => {
     const curve = createMonacoCircuit();
-    expect(curve.points.length).toBe(19);
+    expect(curve.points.length).toBe(34);
     expect(curve.closed).toBe(true);
   });
 
