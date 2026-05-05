@@ -1259,16 +1259,8 @@ describe('RacingState - Multiplayer Synchronization', () => {
 
   describe('Integration: Host-to-Guest Snapshot Replication', () => {
     it('should replicate host snapshot from network to guest OpponentController', () => {
-      // Setup: Create mock network client with callbacks
-      let capturedOnHostMessage: ((message: any) => void) | null = null;
-
-      const mockNetworkClient = {
-        callbacks: {
-          onHostMessage: null as ((message: any) => void) | null,
-        },
-      } as any;
-
-      mockNetworkService.getClient = vi.fn(() => mockNetworkClient);
+      // Setup: Capture EventBus handler
+      let capturedOnHostMessage: ((data: { message: any }) => void) | null = null;
 
       const mockOpponentController = {
         getRemotePlayerMesh: vi.fn(() => null), // No mesh exists initially
@@ -1281,6 +1273,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
       (racingState as any).playerId = 'guest-id';
       (racingState as any).networkService = mockNetworkService;
       (racingState as any).opponentController = mockOpponentController;
+      (racingState as any).context = mockContext;
       (racingState as any).roomInfo = {
         roomId: 'test-room',
         hostId: 'host-id',
@@ -1290,12 +1283,18 @@ describe('RacingState - Multiplayer Synchronization', () => {
         ],
       };
 
-      // Setup multiplayer listeners (this hooks into network callbacks)
+      // Capture the EventBus handler before calling setupMultiplayerListeners
+      mockEventBus.on = vi.fn((event: string, handler: any) => {
+        if (event === 'network:host-message') {
+          capturedOnHostMessage = handler;
+        }
+      });
+
+      // Setup multiplayer listeners (this hooks into EventBus)
       const setupMultiplayerListeners = (racingState as any).setupMultiplayerListeners.bind(racingState);
       setupMultiplayerListeners();
 
-      // Capture the registered callback
-      capturedOnHostMessage = mockNetworkClient.callbacks.onHostMessage;
+      // Verify handler was registered
       expect(capturedOnHostMessage).not.toBeNull();
 
       // Simulate host sending snapshot via network
@@ -1335,8 +1334,8 @@ describe('RacingState - Multiplayer Synchronization', () => {
         ],
       };
 
-      // Execute: Simulate network receiving snapshot and calling callback
-      capturedOnHostMessage!(hostSnapshot);
+      // Execute: Simulate network receiving snapshot and calling EventBus handler
+      capturedOnHostMessage!({ message: hostSnapshot });
 
       // Verify: Guest created remote player for host
       expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledWith(
@@ -1357,15 +1356,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
     });
 
     it('should continuously update host position as snapshots arrive', () => {
-      let capturedOnHostMessage: ((message: any) => void) | null = null;
-
-      const mockNetworkClient = {
-        callbacks: {
-          onHostMessage: null as ((message: any) => void) | null,
-        },
-      } as any;
-
-      mockNetworkService.getClient = vi.fn(() => mockNetworkClient);
+      let capturedOnHostMessage: ((data: { message: any }) => void) | null = null;
 
       const mockHostMesh = new THREE.Mesh();
       const mockOpponentController = {
@@ -1381,11 +1372,17 @@ describe('RacingState - Multiplayer Synchronization', () => {
       (racingState as any).playerId = 'guest-id';
       (racingState as any).networkService = mockNetworkService;
       (racingState as any).opponentController = mockOpponentController;
+      (racingState as any).context = mockContext;
+
+      // Capture the EventBus handler before calling setupMultiplayerListeners
+      mockEventBus.on = vi.fn((event: string, handler: any) => {
+        if (event === 'network:host-message') {
+          capturedOnHostMessage = handler;
+        }
+      });
 
       const setupMultiplayerListeners = (racingState as any).setupMultiplayerListeners.bind(racingState);
       setupMultiplayerListeners();
-
-      capturedOnHostMessage = mockNetworkClient.callbacks.onHostMessage;
 
       // First snapshot: host at position (0, 1, 0)
       const snapshot1 = {
@@ -1405,7 +1402,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
         ],
       };
 
-      capturedOnHostMessage!(snapshot1);
+      capturedOnHostMessage!({ message: snapshot1 });
 
       expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledTimes(1);
       expect(mockOpponentController.updateRemotePlayer).toHaveBeenCalledTimes(1);
@@ -1428,7 +1425,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
         ],
       };
 
-      capturedOnHostMessage!(snapshot2);
+      capturedOnHostMessage!({ message: snapshot2 });
 
       // Should NOT add again (mesh already exists)
       expect(mockOpponentController.addRemotePlayer).toHaveBeenCalledTimes(1);
@@ -1442,15 +1439,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
     });
 
     it('should handle snapshots arriving before OpponentController is ready', () => {
-      let capturedOnHostMessage: ((message: any) => void) | null = null;
-
-      const mockNetworkClient = {
-        callbacks: {
-          onHostMessage: null as ((message: any) => void) | null,
-        },
-      } as any;
-
-      mockNetworkService.getClient = vi.fn(() => mockNetworkClient);
+      let capturedOnHostMessage: ((data: { message: any }) => void) | null = null;
 
       // Start with no OpponentController
       (racingState as any).gameMode = 'multi_guest';
@@ -1458,11 +1447,17 @@ describe('RacingState - Multiplayer Synchronization', () => {
       (racingState as any).networkService = mockNetworkService;
       (racingState as any).opponentController = null;
       (racingState as any).pendingSnapshots = [];
+      (racingState as any).context = mockContext;
+
+      // Capture the EventBus handler before calling setupMultiplayerListeners
+      mockEventBus.on = vi.fn((event: string, handler: any) => {
+        if (event === 'network:host-message') {
+          capturedOnHostMessage = handler;
+        }
+      });
 
       const setupMultiplayerListeners = (racingState as any).setupMultiplayerListeners.bind(racingState);
       setupMultiplayerListeners();
-
-      capturedOnHostMessage = mockNetworkClient.callbacks.onHostMessage;
 
       // Receive snapshot before OpponentController is ready
       const earlySnapshot = {
@@ -1482,7 +1477,7 @@ describe('RacingState - Multiplayer Synchronization', () => {
         ],
       };
 
-      capturedOnHostMessage!(earlySnapshot);
+      capturedOnHostMessage!({ message: earlySnapshot });
 
       // Verify snapshot was buffered
       const pendingSnapshots = (racingState as any).pendingSnapshots;

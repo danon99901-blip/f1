@@ -7,6 +7,8 @@ import {
   TRACK_HALF_WIDTH,
   TRACK_SEGMENTS,
   createCenterline,
+  createSilverstoneCircuit,
+  createMonacoCircuit,
 } from './circuit';
 
 /** Per-sample frame along the centerline. */
@@ -523,9 +525,19 @@ function buildCheckpoints(
   return checkpoints;
 }
 
-export function createTrack(world: RAPIER.World, scene: THREE.Scene): Track {
+export type TrackType = 'default' | 'silverstone' | 'monaco';
+
+export function createTrack(
+  world: RAPIER.World,
+  scene: THREE.Scene,
+  trackType: TrackType = 'default',
+): Track {
   const RAPIER_NS = getRAPIER();
-  const curve = createCenterline();
+  const curve = trackType === 'silverstone'
+    ? createSilverstoneCircuit()
+    : trackType === 'monaco'
+    ? createMonacoCircuit()
+    : createCenterline();
   const frames = buildFrames(curve, TRACK_SEGMENTS);
   // Total arc length: distance from last sample back to first.
   const last = frames[frames.length - 1]!;
