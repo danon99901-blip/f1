@@ -489,7 +489,22 @@ export class RacingState implements GameState {
         position: Math.max(1, Math.min(totalCars, position)),
         totalCars,
         networkStats,
-        ers: vehicle.getDebug().ers,
+        // Map ERSState (Joules + percent) → ERSHudState (0..1 + Joules).
+        // The HUD shape carries normalised charge for the bar fill plus the
+        // raw Joule value for the "X.X / 4.0 MJ" readout, while ERS itself
+        // tracks Joules + percent — bridge the two here.
+        ers: (() => {
+          const e = vehicle.getDebug().ers;
+          return {
+            batteryCharge: e.chargePercent / 100,
+            batteryChargeJ: e.batteryCharge,
+            maxCapacity: e.maxCapacity,
+            isDeploying: e.isDeploying,
+            isRecovering: e.isRecovering,
+            deployedThisLap: e.deployedThisLap,
+            recoveredThisLap: e.recoveredThisLap,
+          };
+        })(),
         drs: vehicle.getDebug().drs,
       });
     }

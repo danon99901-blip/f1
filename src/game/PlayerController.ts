@@ -45,10 +45,16 @@ export class PlayerController {
     const onTrack = this.track.isOnTrack(this.vehicle.rigidBody.translation());
     const gripMul = onTrack ? 1 : this.track.lapInfo.offTrackGripMultiplier;
 
+    // Vehicle.update consumes the input shape from src/input.ts where the
+    // ERS/DRS request flags are required (not optional like in the shared
+    // protocol type). Default missing flags to false so guests/AI inputs
+    // that don't carry them still satisfy the contract.
     const drivingInput = {
       throttle: input.throttle * gripMul,
       brake: input.brake,
       steer: input.steer * gripMul,
+      ersDeployRequested: input.ersDeployRequested ?? false,
+      drsRequested: input.drsRequested ?? false,
     };
 
     this.vehicle.update(drivingInput, dt);
