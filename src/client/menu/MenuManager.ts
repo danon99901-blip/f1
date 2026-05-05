@@ -65,6 +65,9 @@ export class MenuManager {
         const updatedRoomInfo = { ...roomInfo, totalLaps: laps };
         this.lobbyMenu?.updateRoomInfo(updatedRoomInfo);
       },
+      onChangeTrack: (_trackType) => {
+        // Track changes are handled by LobbyState
+      },
       onColorChange: (_color: number) => {
         // Color changes are handled by LobbyState
       },

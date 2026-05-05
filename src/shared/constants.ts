@@ -74,3 +74,10 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
 export const LAP_OPTIONS = [3, 5, 10] as const;
 export const DEFAULT_LAPS = 3;
+
+// Track options
+export const TRACK_OPTIONS = [
+  { id: 'default', name: 'Catalunya' },
+  { id: 'silverstone', name: 'Silverstone' },
+  { id: 'monaco', name: 'Monaco' },
+] as const;

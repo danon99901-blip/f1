@@ -26,6 +26,7 @@ export interface NetworkClientCallbacks {
   onPlayerJoined: (playerId: string, playerName: string) => void;
   onPlayerLeft: (playerId: string) => void;
   onPlayerColorChanged?: (playerId: string, color: number) => void;
+  onRoomSettingsChanged?: (settings: { totalLaps?: number; trackType?: string }) => void;
   onRaceStart: (countdown: number) => void;
   onHostMessage: (message: HostMessage) => void;
   onGuestMessage: (guestId: string, message: ClientMessage) => void;
@@ -96,7 +97,7 @@ export class NetworkClient {
     });
   }
 
-  createRoom(playerName: string, totalLaps: number): void {
+  createRoom(playerName: string, totalLaps: number, trackType: string = 'default'): void {
     this.mode = 'host';
     this.lastPlayerName = playerName;
     this.lastTotalLaps = totalLaps;
@@ -104,6 +105,7 @@ export class NetworkClient {
       type: 'create_room',
       playerName,
       totalLaps,
+      trackType,
     });
   }
 
@@ -132,6 +134,17 @@ export class NetworkClient {
     this.sendSignaling({
       type: 'update_color',
       color,
+    });
+  }
+
+  updateRoomSettings(settings: { totalLaps?: number; trackType?: string }): void {
+    if (this.mode !== 'host') {
+      console.warn('[Network] Only host can update room settings');
+      return;
+    }
+    this.sendSignaling({
+      type: 'update_room_settings',
+      ...settings,
     });
   }
 
@@ -223,6 +236,7 @@ export class NetworkClient {
           hostId: message.players.find((p) => p.isHost)?.id || '',
           players: message.players,
           totalLaps: message.totalLaps,
+          trackType: (message.trackType as RoomInfo['trackType']) || 'default',
           state: 'lobby',
         };
         this.callbacks.onRoomJoined(roomInfo, message.playerId);
@@ -254,6 +268,10 @@ export class NetworkClient {
 
       case 'player_color_changed':
         this.callbacks.onPlayerColorChanged?.(message.playerId, message.color);
+        break;
+
+      case 'room_settings_changed':
+        this.callbacks.onRoomSettingsChanged?.(message);
         break;
 
       case 'race_start':

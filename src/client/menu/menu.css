@@ -343,6 +343,33 @@
   color: #fff;
 }
 
+.lobby-track-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lobby-track-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--menu-border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lobby-track-btn:hover {
+  border-color: var(--f1-red);
+}
+
+.lobby-track-btn.active {
+  background: var(--f1-red);
+  border-color: var(--f1-red);
+  color: #fff;
+}
+
 .menu-button-row {
   display: flex;
   gap: 1rem;

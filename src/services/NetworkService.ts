@@ -65,6 +65,10 @@ export class NetworkService implements Service {
         this.config.eventBus.emit('network:player-color-changed', { playerId, color });
       },
 
+      onRoomSettingsChanged: (settings) => {
+        this.config.eventBus.emit('network:room-settings-changed', settings);
+      },
+
       onRaceStart: (countdown) => {
         this.config.eventBus.emit('race:countdown-start', { seconds: countdown });
       },
@@ -155,11 +159,11 @@ export class NetworkService implements Service {
     this.pingSamples = [];
   }
 
-  createRoom(playerName: string, totalLaps: number): void {
+  createRoom(playerName: string, totalLaps: number, trackType: string = 'default'): void {
     if (!this.client) {
       throw new Error('NetworkService not connected');
     }
-    this.client.createRoom(playerName, totalLaps);
+    this.client.createRoom(playerName, totalLaps, trackType);
   }
 
   joinRoom(roomId: string, playerName: string): void {
@@ -187,6 +191,13 @@ export class NetworkService implements Service {
       throw new Error('NetworkService not connected');
     }
     this.client.updatePlayerColor(color);
+  }
+
+  updateRoomSettings(settings: { totalLaps?: number; trackType?: string }): void {
+    if (!this.client) {
+      throw new Error('NetworkService not connected');
+    }
+    this.client.updateRoomSettings(settings);
   }
 
   broadcastToGuests(message: HostMessage): void {

@@ -1,12 +1,19 @@
 // Lobby menu UI component
 
-import type { RoomInfo } from '../../shared/types';
+import type { RoomInfo, TrackType } from '../../shared/types';
 import { LAP_OPTIONS } from '../../shared/constants';
+
+const TRACK_OPTIONS = [
+  { id: 'default' as TrackType, name: 'Catalunya' },
+  { id: 'silverstone' as TrackType, name: 'Silverstone' },
+  { id: 'monaco' as TrackType, name: 'Monaco' },
+];
 
 export interface LobbyMenuCallbacks {
   onStartRace: () => void;
   onLeaveLobby: () => void;
   onChangeLaps: (laps: number) => void;
+  onChangeTrack: (trackType: TrackType) => void;
   onColorChange: (color: number) => void;
 }
 
@@ -102,6 +109,23 @@ export class LobbyMenu {
       `
       : `<div class="lobby-setting-value">${this.roomInfo.totalLaps}</div>`;
 
+    const trackSelector = this.isHost
+      ? `
+        <div class="lobby-track-selector">
+          ${TRACK_OPTIONS.map(
+            (track) => `
+            <button
+              class="lobby-track-btn ${track.id === this.roomInfo.trackType ? 'active' : ''}"
+              data-track="${track.id}"
+            >
+              ${track.name}
+            </button>
+          `,
+          ).join('')}
+        </div>
+      `
+      : `<div class="lobby-setting-value">${TRACK_OPTIONS.find((t) => t.id === this.roomInfo.trackType)?.name || 'Catalunya'}</div>`;
+
     content.innerHTML = `
       <div class="lobby-header">
         <div>
@@ -117,6 +141,10 @@ export class LobbyMenu {
       </div>
 
       <div class="lobby-settings">
+        <div class="lobby-setting-row">
+          <div class="lobby-setting-label">Track</div>
+          ${trackSelector}
+        </div>
         <div class="lobby-setting-row">
           <div class="lobby-setting-label">Laps</div>
           ${lapSelector}
@@ -164,6 +192,16 @@ export class LobbyMenu {
         btn.addEventListener('click', () => {
           const laps = parseInt((btn as HTMLElement).dataset.laps || '3');
           this.callbacks.onChangeLaps(laps);
+        });
+      });
+
+      // Track selector buttons
+      content.querySelectorAll('.lobby-track-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const trackType = (btn as HTMLElement).dataset.track as TrackType;
+          if (trackType) {
+            this.callbacks.onChangeTrack(trackType);
+          }
         });
       });
     }

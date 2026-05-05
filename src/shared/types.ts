@@ -20,11 +20,14 @@ export interface PlayerState {
   bestLapMs: number | null;
 }
 
+export type TrackType = 'default' | 'silverstone' | 'monaco';
+
 export interface RoomInfo {
   roomId: string;
   hostId: string;
   players: { id: string; name: string; isHost: boolean; carColor: number }[];
   totalLaps: number;
+  trackType: TrackType;
   state: 'lobby' | 'countdown' | 'racing' | 'finished';
 }
 

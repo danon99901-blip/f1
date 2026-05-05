@@ -23,6 +23,7 @@ export class LobbyState implements GameState {
     context.eventBus.on('network:player-joined', this.handlePlayerJoined);
     context.eventBus.on('network:player-left', this.handlePlayerLeft);
     context.eventBus.on('network:player-color-changed', this.handlePlayerColorChanged);
+    context.eventBus.on('network:room-settings-changed', this.handleRoomSettingsChanged);
     context.eventBus.on('race:countdown-start', this.handleRaceStart);
     context.eventBus.on('error:network', this.handleNetworkError);
 
@@ -84,7 +85,7 @@ export class LobbyState implements GameState {
     } else if (playerName) {
       // Create new room
       console.log('[LobbyState] Creating room as', playerName);
-      networkService.createRoom(playerName, 3); // Default 3 laps
+      networkService.createRoom(playerName, 3, 'default'); // Default 3 laps, Catalunya track
     } else {
       console.error('[LobbyState] No playerName or roomId provided');
     }
@@ -101,6 +102,7 @@ export class LobbyState implements GameState {
       this.context.eventBus.off('network:player-joined', this.handlePlayerJoined);
       this.context.eventBus.off('network:player-left', this.handlePlayerLeft);
       this.context.eventBus.off('network:player-color-changed', this.handlePlayerColorChanged);
+      this.context.eventBus.off('network:room-settings-changed', this.handleRoomSettingsChanged);
       this.context.eventBus.off('race:countdown-start', this.handleRaceStart);
       this.context.eventBus.off('error:network', this.handleNetworkError);
     }
@@ -137,6 +139,7 @@ export class LobbyState implements GameState {
           carColor: 0xe10600, // Default Ferrari red
         }],
         totalLaps: 3,
+        trackType: 'default',
         state: 'lobby',
       };
 
@@ -175,6 +178,7 @@ export class LobbyState implements GameState {
             carColor: 0xe10600, // Default Ferrari red
           }],
           totalLaps: 3,
+          trackType: 'default',
           state: 'lobby',
         };
       }
@@ -214,6 +218,18 @@ export class LobbyState implements GameState {
         player.carColor = data.color;
         this.updateLobby();
       }
+    }
+  };
+
+  private handleRoomSettingsChanged = (data: { totalLaps?: number; trackType?: string }) => {
+    if (this.roomInfo) {
+      if (data.totalLaps !== undefined) {
+        this.roomInfo.totalLaps = data.totalLaps;
+      }
+      if (data.trackType !== undefined) {
+        this.roomInfo.trackType = data.trackType as RoomInfo['trackType'];
+      }
+      this.updateLobby();
     }
   };
 
@@ -315,8 +331,16 @@ export class LobbyState implements GameState {
       },
       onChangeLaps: (laps: number) => {
         console.log('[LobbyState] Laps changed to', laps);
-        if (this.roomInfo) {
+        if (this.roomInfo && this.networkService) {
           this.roomInfo.totalLaps = laps;
+          this.networkService.updateRoomSettings({ totalLaps: laps });
+        }
+      },
+      onChangeTrack: (trackType) => {
+        console.log('[LobbyState] Track changed to', trackType);
+        if (this.roomInfo && this.networkService) {
+          this.roomInfo.trackType = trackType;
+          this.networkService.updateRoomSettings({ trackType });
         }
       },
       onColorChange: (color: number) => {

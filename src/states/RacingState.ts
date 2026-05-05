@@ -165,7 +165,9 @@ export class RacingState implements GameState {
     this.groundGrid = ground.grid;
 
     console.log('[RacingState] Creating track...');
-    const track = createTrack(this.physicsService!.getWorld(), scene);
+    const trackType = context.data?.roomInfo?.trackType || 'default';
+    console.log('[RacingState] Using track type:', trackType);
+    const track = createTrack(this.physicsService!.getWorld(), scene, trackType);
     this.track = track;
     this.trackMesh = track.mesh;
     const spawn = track.lapInfo.spawn;

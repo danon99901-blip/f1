@@ -22,6 +22,7 @@ interface Room {
   hostId: string;
   players: Map<string, Player>;
   totalLaps: number;
+  trackType: string;
   state: 'lobby' | 'racing';
 }
 
@@ -152,6 +153,7 @@ export class SignalingServer {
       hostId: player.id,
       players: new Map([[player.id, player]]),
       totalLaps: message.totalLaps,
+      trackType: message.trackType,
       state: 'lobby',
     };
 
@@ -170,6 +172,7 @@ export class SignalingServer {
       playerId: player.id,
       players: [{ id: player.id, name: player.name, isHost: true, carColor: player.carColor }],
       totalLaps: room.totalLaps,
+      trackType: room.trackType,
     });
 
     console.log(`[Signaling] Room ${roomId} created by ${player.name}`);
@@ -218,6 +221,7 @@ export class SignalingServer {
         carColor: p.carColor,
       })),
       totalLaps: room.totalLaps,
+      trackType: room.trackType,
     });
 
     // Notify all other players

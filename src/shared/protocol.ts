@@ -90,6 +90,7 @@ export interface CreateRoom {
   type: 'create_room';
   playerName: string;
   totalLaps: number;     // 3, 5, or 10
+  trackType: string;     // 'default', 'silverstone', 'monaco'
 }
 
 export interface JoinRoom {
@@ -111,6 +112,18 @@ export interface UpdateColor {
   color: number;
 }
 
+export interface UpdateRoomSettings {
+  type: 'update_room_settings';
+  totalLaps?: number;
+  trackType?: string;
+}
+
+export interface RoomSettingsChanged {
+  type: 'room_settings_changed';
+  totalLaps?: number;
+  trackType?: string;
+}
+
 export interface PlayerColorChanged {
   type: 'player_color_changed';
   playerId: string;
@@ -129,6 +142,7 @@ export interface RoomJoined {
   playerId: string;
   players: { id: string; name: string; isHost: boolean; carColor: number }[];
   totalLaps: number;
+  trackType: string;
 }
 
 export interface PlayerJoined {
@@ -172,6 +186,7 @@ export type SignalingClientMessage =
   | LeaveRoom
   | StartRace
   | UpdateColor
+  | UpdateRoomSettings
   | SignalingOffer
   | SignalingAnswer
   | SignalingIceCandidate;
@@ -182,6 +197,7 @@ export type SignalingServerMessage =
   | PlayerJoined
   | PlayerLeft
   | PlayerColorChanged
+  | RoomSettingsChanged
   | RoomError
   | SignalingOffer
   | SignalingAnswer

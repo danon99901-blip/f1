@@ -19,6 +19,7 @@ export interface GameEvents {
   'network:player-joined': { playerId: string; playerName: string };
   'network:player-left': { playerId: string };
   'network:player-color-changed': { playerId: string; color: number };
+  'network:room-settings-changed': { totalLaps?: number; trackType?: string };
   'network:host-message': { message: any };
   'network:guest-message': { guestId: string; message: any };
 
