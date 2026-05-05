@@ -13,6 +13,7 @@ import {
   DEFAULT_DRS_ZONES,
   SILVERSTONE_DRS_ZONES,
   MONACO_DRS_ZONES,
+  MONACO_ELEVATIONS,
 } from './circuit';
 
 /** Per-sample frame along the centerline. */
@@ -79,22 +80,56 @@ const BARRIER_THICKNESS = 0.35;
  * Uses simple parallel-transport: because the curve lies on Y=0 we lock the
  * "up" axis to +Y, which avoids the twist artefacts a generic Frenet frame
  * would produce on tight corners (where curvature flips sign).
+ *
+ * Optional `elevations` parameter lifts each frame's Y by a value linearly
+ * interpolated between the per-control-point heights. The Catmull-Rom curve
+ * itself stays on Y=0 (so tangent / right-vector math is unaffected); only
+ * `frame.position.y` carries the elevation, and downstream geometry
+ * (asphalt, kerbs, barriers, checkpoints) sources its Y from the frames.
+ *
+ * Linear interpolation (rather than another spline) is intentional — a
+ * Catmull-Rom over the elevation samples can overshoot above the highest
+ * value or below zero between control points, which would punch the track
+ * underground or into the air at Casino / harbour transitions.
  */
 function buildFrames(
   curve: THREE.CatmullRomCurve3,
   segments: number,
+  elevations?: ReadonlyArray<number>,
 ): TrackFrame[] {
   const frames: TrackFrame[] = [];
   const up = new THREE.Vector3(0, 1, 0);
   let cumulative = 0;
   let prevPos: THREE.Vector3 | null = null;
 
+  // Closed-curve elevation lookup. For a closed Catmull-Rom with N control
+  // points, the parameter t in [0,1) maps to control-point index t*N. We
+  // wrap so the segment between the last and first control points is
+  // covered too.
+  const cpCount = elevations ? elevations.length : 0;
+  const sampleElevation = (t: number): number => {
+    if (!elevations || cpCount === 0) return 0;
+    const f = t * cpCount;
+    const i0 = Math.floor(f) % cpCount;
+    const i1 = (i0 + 1) % cpCount;
+    const frac = f - Math.floor(f);
+    const e0 = elevations[i0]!;
+    const e1 = elevations[i1]!;
+    return e0 + (e1 - e0) * frac;
+  };
+
   for (let i = 0; i < segments; i++) {
     const t = i / segments;
     const position = curve.getPointAt(t);
-    // Force onto the Y=0 plane (Catmull-Rom may drift slightly numerically).
-    position.y = 0;
+    // Curve sits on Y=0 by construction (control points have y=0); apply
+    // the per-frame elevation here.
+    position.y = sampleElevation(t);
     const tangent = curve.getTangentAt(t);
+    // Lock tangent to the X/Z plane: the elevation profile is too gentle
+    // (max ~3% grade for short stretches) to justify pitching the track
+    // ribbon, and a flat tangent keeps barrier yaw / checkpoint orientation
+    // stable. Cars feel the height change through Y of the surface; the
+    // visual ramp is provided by the Y of consecutive frames.
     tangent.y = 0;
     if (tangent.lengthSq() < 1e-8) {
       tangent.set(1, 0, 0);
@@ -164,6 +199,10 @@ function buildRibbon(frames: TrackFrame[]): {
     const f = frames[i]!;
     const cx = f.position.x;
     const cz = f.position.z;
+    // Per-frame elevation (Y carried in frame.position by buildFrames). For
+    // flat circuits (default / Silverstone) this is 0; for Monaco it ranges
+    // 0..42 m to encode the climb to Casino and the harbour-side descent.
+    const cy = f.position.y;
     const rx = f.right.x;
     const rz = f.right.z;
 
@@ -179,11 +218,13 @@ function buildRibbon(frames: TrackFrame[]): {
     const orz = cz + rz * (halfW + kerbW);
 
     // Asphalt verts: 0 = left edge, 1 = right edge.
+    const surfY = surfaceY + cy;
+    const kerbYAt = kerbY + cy;
     asphaltPos[i * 6 + 0] = lx;
-    asphaltPos[i * 6 + 1] = surfaceY;
+    asphaltPos[i * 6 + 1] = surfY;
     asphaltPos[i * 6 + 2] = lz;
     asphaltPos[i * 6 + 3] = ax;
-    asphaltPos[i * 6 + 4] = surfaceY;
+    asphaltPos[i * 6 + 4] = surfY;
     asphaltPos[i * 6 + 5] = az;
 
     // UVs: U across the track (0..1), V along arc length tiled every 4 m.
@@ -206,10 +247,10 @@ function buildRibbon(frames: TrackFrame[]): {
     const rB = stripe === 0 ? 0.05 : 0.05;
     // Left kerb: outer (col 0), inner (col 1)
     kerbLeftPos[i * 6 + 0] = olx;
-    kerbLeftPos[i * 6 + 1] = kerbY;
+    kerbLeftPos[i * 6 + 1] = kerbYAt;
     kerbLeftPos[i * 6 + 2] = olz;
     kerbLeftPos[i * 6 + 3] = lx;
-    kerbLeftPos[i * 6 + 4] = kerbY;
+    kerbLeftPos[i * 6 + 4] = kerbYAt;
     kerbLeftPos[i * 6 + 5] = lz;
     kerbLeftCol[i * 6 + 0] = cR;
     kerbLeftCol[i * 6 + 1] = cG;
@@ -219,10 +260,10 @@ function buildRibbon(frames: TrackFrame[]): {
     kerbLeftCol[i * 6 + 5] = cB;
     // Right kerb
     kerbRightPos[i * 6 + 0] = ax;
-    kerbRightPos[i * 6 + 1] = kerbY;
+    kerbRightPos[i * 6 + 1] = kerbYAt;
     kerbRightPos[i * 6 + 2] = az;
     kerbRightPos[i * 6 + 3] = orx;
-    kerbRightPos[i * 6 + 4] = kerbY;
+    kerbRightPos[i * 6 + 4] = kerbYAt;
     kerbRightPos[i * 6 + 5] = orz;
     kerbRightCol[i * 6 + 0] = rR;
     kerbRightCol[i * 6 + 1] = rG;
@@ -250,16 +291,16 @@ function buildRibbon(frames: TrackFrame[]): {
 
     // Collider strip: 4 columns per segment.
     colliderVerts[i * 12 + 0] = olx;
-    colliderVerts[i * 12 + 1] = surfaceY;
+    colliderVerts[i * 12 + 1] = surfY;
     colliderVerts[i * 12 + 2] = olz;
     colliderVerts[i * 12 + 3] = lx;
-    colliderVerts[i * 12 + 4] = surfaceY;
+    colliderVerts[i * 12 + 4] = surfY;
     colliderVerts[i * 12 + 5] = lz;
     colliderVerts[i * 12 + 6] = ax;
-    colliderVerts[i * 12 + 7] = surfaceY;
+    colliderVerts[i * 12 + 7] = surfY;
     colliderVerts[i * 12 + 8] = az;
     colliderVerts[i * 12 + 9] = orx;
-    colliderVerts[i * 12 + 10] = surfaceY;
+    colliderVerts[i * 12 + 10] = surfY;
     colliderVerts[i * 12 + 11] = orz;
   }
 
@@ -389,15 +430,21 @@ function buildBarriers(
     const rightA = a.position.clone().addScaledVector(a.right, lateral);
     const rightB = b.position.clone().addScaledVector(b.right, lateral);
 
+    // Average elevation across the segment (a, b are adjacent frames). For
+    // flat tracks this is 0; for Monaco it follows the ribbon up to ~42 m
+    // at Casino and back down through the tunnel.
+    const segElev = (a.position.y + b.position.y) * 0.5;
+
     const createBarrierSegment = (p0: THREE.Vector3, p1: THREE.Vector3) => {
       const center = p0.clone().add(p1).multiplyScalar(0.5);
       const length = Math.max(0.75, p0.distanceTo(p1));
       const halfLength = length * 0.5;
       const halfThickness = BARRIER_THICKNESS * 0.5;
+      const baseY = SURFACE_Y + segElev + halfHeight;
 
       // Set instance transform: position at segment center, yaw rotation, and
       // scale the unit cube to (length, height, thickness).
-      tmpPos.set(center.x, SURFACE_Y + halfHeight, center.z);
+      tmpPos.set(center.x, baseY, center.z);
       tmpQuat.setFromAxisAngle(yAxis, yaw);
       tmpScale.set(length, BARRIER_HEIGHT, BARRIER_THICKNESS);
       tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
@@ -410,7 +457,7 @@ function buildBarriers(
         halfHeight,
         halfThickness,
       )
-        .setTranslation(center.x, SURFACE_Y + halfHeight, center.z)
+        .setTranslation(center.x, baseY, center.z)
         .setRotation({ x: 0, y: sinHalf, z: 0, w: cosHalf })
         .setFriction(0.7)
         .setRestitution(0.08);
@@ -478,7 +525,8 @@ function buildStartFinish(frames: TrackFrame[]): THREE.Mesh {
   // Default forward after rotateX(-PI/2) is +Z (was +Y in plane-local).
   const yaw = Math.atan2(f.tangent.x, f.tangent.z);
   mesh.rotation.y = yaw;
-  mesh.position.set(f.position.x, 0.04, f.position.z);
+  // Sit just above the asphalt at this frame's elevation.
+  mesh.position.set(f.position.x, f.position.y + 0.04, f.position.z);
   mesh.receiveShadow = true;
   return mesh;
 }
@@ -520,7 +568,10 @@ function buildCheckpoints(
     const cosHalf = Math.cos(yaw / 2);
     const desc = RAPIER_NS.ColliderDesc.cuboid(halfW, halfHeight, halfThickness)
       .setSensor(true)
-      .setTranslation(f.position.x, halfHeight, f.position.z)
+      // Lift sensor by frame elevation so the box hovers over the actual
+      // road surface (matters on the Monaco climb to Casino, otherwise the
+      // sensor would intersect the hill instead of the asphalt).
+      .setTranslation(f.position.x, halfHeight + f.position.y, f.position.z)
       .setRotation({ x: 0, y: sinHalf, z: 0, w: cosHalf });
     const collider = world.createCollider(desc);
     checkpoints.push({
@@ -546,7 +597,11 @@ export function createTrack(
     : trackType === 'monaco'
     ? createMonacoCircuit()
     : createCenterline();
-  const frames = buildFrames(curve, TRACK_SEGMENTS);
+  // Only Monaco has an elevation profile (the climb to Casino, descent
+  // through Loews / Portier, harbour-side flat, and rise back through
+  // Anthony Noghes). Default and Silverstone stay flat.
+  const elevations = trackType === 'monaco' ? MONACO_ELEVATIONS : undefined;
+  const frames = buildFrames(curve, TRACK_SEGMENTS, elevations);
   // Total arc length: distance from last sample back to first.
   const last = frames[frames.length - 1]!;
   const first = frames[0]!;
@@ -597,11 +652,14 @@ export function createTrack(
 
   // Spawn pose: a few metres BEFORE the start/finish line, on the centerline,
   // facing along the tangent. We back up along -tangent by half the start/
-  // finish strip plus a margin.
+  // finish strip plus a margin. Y = surface height at this frame + clearance
+  // so the car drops a short distance onto the asphalt regardless of track
+  // elevation (Monaco's start/finish is at 0 m, but this stays correct if
+  // we ever spawn elsewhere on a hill).
   const spawnPos = first.position
     .clone()
     .addScaledVector(first.tangent, -6.0);
-  spawnPos.y = 1.2;
+  spawnPos.y = first.position.y + 1.2;
 
   // Build a flat array of frame data for the lookup helpers.
   const frameXZ = new Float32Array(frames.length * 4);

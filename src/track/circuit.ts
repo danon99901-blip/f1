@@ -129,76 +129,203 @@ export function createSilverstoneCircuit(): THREE.CatmullRomCurve3 {
 }
 
 /**
- * Control points for Monaco street circuit — accurate replica based on real track layout.
- * 3.337 km, 19 corners, tight and technical with elevation changes.
- * Scale: ~1 unit = 10 meters for proper racing feel.
+ * Control points for Circuit de Monaco — geometry traced from the real
+ * street layout (OSM relation "Circuit de Monaco" + official FIA layout).
+ *
+ * Coordinate frame: X = east, Z = south, units = metres. The origin sits on
+ * the start/finish line on Boulevard Albert Ier, with the racing direction
+ * along +X (east), matching how the cars launch off the line.
+ *
+ * Total length ≈ 3337 m, 19 named corners. Walked clockwise (the real
+ * direction of travel) from the start/finish line:
+ *
+ *   0..1   Start/finish straight along Boulevard Albert Ier
+ *   2      T1  Sainte Devote        (tight right, ~80 km/h)
+ *   3..6   Beau Rivage uphill ramp toward Casino
+ *   7      T3  Massenet             (left, entry to Casino Square)
+ *   8      T4  Casino Square        (right, crest)
+ *   9..10  Run down to Mirabeau
+ *   11     T5  Mirabeau Haute       (right, downhill)
+ *   12..13 T6  Grand Hotel Hairpin / Loews (slowest corner, ~48 km/h)
+ *   14     T7  Mirabeau Basse       (right, downhill)
+ *   15     T8  Portier              (right, leads onto the tunnel)
+ *   16..19 Tunnel section under the Fairmont (fastest part, ~290 km/h)
+ *   20     T10 Nouvelle Chicane     (left/right chicane, harbour exit)
+ *   21     T11 Tabac                (fast left along the harbour)
+ *   22..23 T12 Swimming Pool entry  (left/right flick)
+ *   24..25 T15 Swimming Pool exit   (right/left flick)
+ *   26     T17 La Rascasse          (very tight right hairpin)
+ *   27..29 T19 Anthony Noghes       (right onto start/finish)
+ *
+ * The shape is approximate to within a few metres but preserves the real
+ * proportions (long pit straight, climb to Casino, the tunnel kink, the
+ * harbour run, and the tight Rascasse / Anthony Noghes pairing).
  */
 export const MONACO_CONTROL_POINTS: ReadonlyArray<readonly [number, number]> = [
-  // Start/Finish straight
+  // 0  Start/finish line on Boulevard Albert Ier
   [0, 0],
-  [0, -20],
+  // 1  End of pit straight, braking for Sainte Devote
+  [120, -8],
+  // 2  T1  Sainte Devote — tight right, climb begins
+  [148, -22],
+  // 3  Beau Rivage — fast uphill kink (Avenue d'Ostende)
+  [168, -52],
+  // 4  Beau Rivage mid-climb
+  [180, -90],
+  // 5  Beau Rivage upper section
+  [186, -130],
+  // 6  Approach to Casino, road bends left
+  [180, -168],
+  // 7  T3  Massenet — left into Casino Square
+  [160, -198],
+  // 8  T4  Casino Square — right, crest of the circuit
+  [128, -214],
+  // 9  Down toward Mirabeau, Avenue des Beaux-Arts
+  [92, -222],
+  // 10 Approach to Mirabeau Haute
+  [58, -218],
+  // 11 T5  Mirabeau Haute — tight right, downhill
+  [32, -204],
+  // 12 Run-in to the Loews hairpin
+  [18, -184],
+  // 13 T6  Grand Hotel Hairpin (Loews) — slowest corner, ~180° right
+  [44, -168],
+  // 14 T7  Mirabeau Basse — right, continues downhill
+  [62, -184],
+  // 15 T8  Portier — right onto the seafront, tunnel entry
+  [88, -222],
+  // 16 Tunnel entrance (under the Fairmont)
+  [112, -252],
+  // 17 Tunnel mid (fastest point on the lap)
+  [120, -288],
+  // 18 Tunnel exit, slight left toward chicane braking zone
+  [108, -322],
+  // 19 Run-down from tunnel along Boulevard Louis II
+  [82, -348],
+  // 20 T10 Nouvelle Chicane — harbourside left/right
+  [50, -362],
+  // 21 T11 Tabac — fast left along the harbour
+  [10, -360],
+  // 22 T12 Swimming Pool entry — left flick
+  [-26, -344],
+  // 23 T13 Swimming Pool — right flick (between the pools)
+  [-50, -316],
+  // 24 T14 Swimming Pool — left
+  [-72, -284],
+  // 25 T15 Swimming Pool exit — right
+  [-90, -252],
+  // 26 Run-up to Rascasse
+  [-104, -216],
+  // 27 T17 La Rascasse — very tight right hairpin around the famous bar
+  [-114, -178],
+  // 28 Short run, slight left
+  [-108, -140],
+  // 29 T18 Anthony Noghes — right onto the pit straight
+  [-92, -86],
+  // 30 Apex of Anthony Noghes
+  [-66, -42],
+  // 31 Onto start/finish, blending back to point 0
+  [-32, -16],
+  // 32 Final approach to the line
+  [-12, -4],
+  // 33 Just before the start/finish (closes the loop)
+  [-2, -1],
+];
 
-  // Turn 1: Sainte Dévote (tight right-hander, 50 km/h)
-  [15, -35],
-  [35, -45],
-
-  // Beau Rivage (uphill climb to Casino)
-  [50, -50],
-  [70, -55],
-
-  // Turn 2: Massenet (slight right kink)
-  [85, -60],
-
-  // Turn 3: Casino Square (right-hander)
-  [100, -70],
-  [110, -85],
-
-  // Turn 4: Mirabeau (tight right before hairpin)
-  [115, -100],
-
-  // Turn 5: Grand Hotel Hairpin / Loews (slowest corner, 48 km/h)
-  [115, -120],
-  [105, -135],
-  [85, -140],
-
-  // Turn 6: Portier (right-hander leading to tunnel)
-  [70, -145],
-  [55, -155],
-
-  // Tunnel section (slight left, fastest part ~260 km/h)
-  [35, -165],
-  [10, -175],
-  [-15, -180],
-  [-40, -182],
-
-  // Turn 10: Nouvelle Chicane (left-right chicane after tunnel)
-  [-60, -180],
-  [-75, -175],
-  [-85, -165],
-
-  // Turn 11: Tabac (fast left-hander)
-  [-95, -145],
-  [-100, -120],
-
-  // Turn 12-13: Swimming Pool complex (tight chicane)
-  [-105, -95],
-  [-115, -75],
-  [-120, -55],
-  [-115, -35],
-
-  // Turn 14: La Rascasse (very tight hairpin, 55 km/h)
-  [-105, -15],
-  [-85, -5],
-
-  // Turn 15: Anthony Noghes (tight right onto start/finish)
-  [-65, 0],
-  [-45, 5],
-  [-25, 8],
-  [-10, 5],
+/**
+ * Per-control-point elevation for Circuit de Monaco, in metres above sea
+ * level. Indices line up 1:1 with `MONACO_CONTROL_POINTS`.
+ *
+ * Values are normalised so the start/finish line sits at Y=0 — the actual
+ * altitude difference between the highest point (Casino Square, ~42 m) and
+ * the lowest (harbour-side at Tabac/Nouvelle Chicane, ~5 m below the line)
+ * is what we care about for racing feel. Elevation profile based on the
+ * documented ~42 m climb from Sainte Devote to Casino, the steep descent
+ * through Mirabeau / Loews / Portier, the level harbour section, and the
+ * gentle rise back through Anthony Noghes.
+ *
+ * These are applied to the *frames* generated from the centerline, not to
+ * the control points themselves — keeping the Catmull-Rom curve on the Y=0
+ * plane (so existing tests and tangent math continue to work) while the
+ * track ribbon and barriers are lifted into 3D after sampling.
+ */
+export const MONACO_ELEVATIONS: ReadonlyArray<number> = [
+  // 0  Start/finish (datum)
+  0.0,
+  // 1  End of pit straight
+  1.5,
+  // 2  Sainte Devote — climb begins
+  4.0,
+  // 3  Beau Rivage lower
+  12.0,
+  // 4  Beau Rivage mid
+  22.0,
+  // 5  Beau Rivage upper
+  32.0,
+  // 6  Approach Casino
+  38.0,
+  // 7  Massenet
+  41.0,
+  // 8  Casino Square (highest point)
+  42.0,
+  // 9  Past Casino, gentle descent
+  40.0,
+  // 10 Approach Mirabeau
+  37.0,
+  // 11 Mirabeau Haute
+  33.0,
+  // 12 Run-in to Loews
+  28.0,
+  // 13 Loews hairpin
+  24.0,
+  // 14 Mirabeau Basse (downhill)
+  19.0,
+  // 15 Portier (sea level approach)
+  10.0,
+  // 16 Tunnel entrance
+  6.0,
+  // 17 Tunnel mid (under hill, but road is roughly level)
+  6.0,
+  // 18 Tunnel exit
+  5.0,
+  // 19 Run to chicane
+  4.0,
+  // 20 Nouvelle Chicane (harbour)
+  3.5,
+  // 21 Tabac
+  3.5,
+  // 22 Swimming Pool entry
+  4.0,
+  // 23 Swimming Pool mid 1
+  4.5,
+  // 24 Swimming Pool mid 2
+  5.0,
+  // 25 Swimming Pool exit
+  5.5,
+  // 26 Run-up to Rascasse
+  6.0,
+  // 27 Rascasse
+  6.5,
+  // 28 Past Rascasse
+  5.0,
+  // 29 Anthony Noghes
+  3.5,
+  // 30 Anthony Noghes apex
+  2.5,
+  // 31 Onto pit straight
+  1.5,
+  // 32 Final approach
+  0.5,
+  // 33 Just before line (closes the loop back to 0)
+  0.1,
 ];
 
 /**
  * Build Monaco circuit centerline.
+ *
+ * The control points stay on the Y=0 plane (so tangent / right-vector math
+ * in `buildFrames` is unaffected). Elevations are applied separately by the
+ * track builder via `MONACO_ELEVATIONS`.
  */
 export function createMonacoCircuit(): THREE.CatmullRomCurve3 {
   const pts = MONACO_CONTROL_POINTS.map(
